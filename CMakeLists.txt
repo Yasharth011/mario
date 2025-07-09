@@ -8,7 +8,8 @@ set_target_properties(yasmin PROPERTIES
 	IMPORTED_LOCATION "${YASMIN_INCLUDE_DIR}/lib/libyasmin.so" 
 	INTERFACE_INCLUDE_DIRECTORIES "${YASMIN_INCLUDE_DIR}/include/")
 
-add_library(Mario STATIC ./lib/mario.hpp)
-target_include_directories(Mario PTIVATE ./lib)
 add_executable(mario ./src/mario.cpp)
-target_link_directories(mario PRIVATE yasmin Mario)
+
+target_include_directories(mario PRIVATE ${CMAKE_SOURCE_DIR}/lib)
+
+target_link_directories(mario PRIVATE yasmin)
