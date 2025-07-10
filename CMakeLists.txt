@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(Mario VERSION 0.1 LANGUAGES CXX)
 
-set(YASMIN_INCLUDE_DIR "/nix/store/qmzs2jxj8jg57jzx5wqvfxa84ii8pa5h-yasmin")
+set(YASMIN_INCLUDE_DIR "/nix/store/r43i4clnbrh5w41fvhfjxqrh7xlwh09a-yasmin")
 add_library(yasmin STATIC IMPORTED)
 set_target_properties(yasmin PROPERTIES 
 	IMPORTED_LOCATION "${YASMIN_INCLUDE_DIR}/lib/libyasmin.so" 

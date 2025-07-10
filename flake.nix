@@ -20,8 +20,8 @@
           src = fetchFromGitHub {
             owner = "Yasharth011";
             repo = "yasmin_UNROS";
-            rev = "4cd3790dba0a86b769093dc167d73a6cc64280cc"; # v3.3.0
-            sha256 = "sha256-QCYiqIGETeOhYbVfhIO3HbFxlvIMDalEBT9ygvrOIio=";
+            rev = "f21e30afa122ddc11ff272adf9834e3d18a3b700"; # v3.3.0
+            sha256 = "sha256-QRdBoOWUsm9JXgxIq3BUjgwEqJeJpadXnJLlePhCpW8=";
           };
           nativeBuildInputs = [ cmake ];
           configurePhase = ''
