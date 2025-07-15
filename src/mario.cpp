@@ -4,8 +4,11 @@
 
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
+#include <yasmin/logs.hpp> 
 
 #include <mario.hpp>
+
+#include <serialib.h>
 
 class Navigate : public yasmin::State {
 
@@ -36,7 +39,9 @@ public:
   }
 };
 
-int main() {
+int main(int argc, cahr *argv[]) {
+
+  YASMIN_LOG_INFO("Configuring rover peripherals...");
 
   // Create Pipeline and configure realsense
   rs2::pipeline pipe;
@@ -53,6 +58,17 @@ int main() {
 
   rs2::pointcloud pc;
   rs2::points points;
+
+  // serial object 
+  serialib serial; 
+
+  // open serial device 
+  char errorOpening = serial.openDevice(SERIAL_PORT, 9600); 
+
+  // check for errors 
+  if (errorOpening!=1) YASMIN_LOG_WARN("Error opening device");
+
+  YASMIN_LOG_INFO("Succesful connection to %s\n",SERIAL_PORT);
 
   // Create a state machine
   auto sm = std::make_shared<yasmin::StateMachine>(
