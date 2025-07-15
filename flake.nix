@@ -29,11 +29,12 @@
                           mkdir build && cd build 
                           cmake .. -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX=$out
             '';
-            buildPhase = "  make\n";
+            buildPhase = "  make ";
             installPhase = ''
               make install
             '';
           };
+
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [ cmake packages.yasmin librealsense ];
         };
