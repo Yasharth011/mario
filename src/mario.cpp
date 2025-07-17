@@ -1,14 +1,12 @@
-#include <iostream>
-
 #include <librealsense2/rs.hpp>
 
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
 
-#include <mario.hpp>
-
 #include <serialib.h>
+
+#include <mario.hpp>
 
 class Navigate : public yasmin::State {
 
@@ -58,7 +56,8 @@ class Arrow_Detected : public yasmin::State {
 public:
   serialib serial;
 
-  Cone_Detected(serialib x) : yasmin::State({"NAVIGATE", "IDLE"}), serial(x) {};
+  Arrow_Detected(serialib x)
+      : yasmin::State({"NAVIGATE", "IDLE"}), serial(x) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -66,7 +65,7 @@ public:
   }
 };
 
-int main(int argc, cahr *argv[]) {
+int main(int argc, char *argv[]) {
 
   YASMIN_LOG_INFO("Configuring rover peripherals...");
 
@@ -81,7 +80,14 @@ int main(int argc, cahr *argv[]) {
   cfg.enable_stream(RS2_STREAM_COLOR);
   cfg.enable_stream(RS2_STREAM_INFRARED, 2);
 
-  // pipe.start(cfg);
+  // Starting realsense pipeline
+  try {
+    pipe.start(cfg);
+    YASMIN_LOG_INFO("Succesful connection to RealSense");
+  } catch (const std::exception &e) {
+    YASMIN_LOG_ERROR("RealSense : %s", e.what());
+    return 0;
+  }
 
   rs2::pointcloud pc;
   rs2::points points;
@@ -89,18 +95,22 @@ int main(int argc, cahr *argv[]) {
   // serial object
   serialib nucleo_com;
 
+  char *SERIAL_PORT = argv[1];
+
   // open serial device
-  char errorOpening = serial.openDevice(SERIAL_PORT, 9600);
+  char errorOpening = nucleo_com.openDevice(SERIAL_PORT, 9600);
 
   // check for errors
-  if (errorOpening != 1)
-    YASMIN_LOG_ERROR("Error opening device");
+  if (errorOpening != 1) {
+    YASMIN_LOG_ERROR("Nucleo : Error opening device");
+    return 0;
+  }
 
   YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT);
 
   // Create a state machine
   auto sm = std::make_shared<yasmin::StateMachine>(
-      std::initializer_list<std::string>{});
+      std::initializer_list<std::string>{"Cone_Detected"});
 
   // Add states to the state machine
   sm->add_state("Navigate", std::make_shared<Navigate>(nucleo_com),
@@ -114,16 +124,19 @@ int main(int argc, cahr *argv[]) {
                  {"CONE_DETECTED", "Cone_Detected"}});
 
   sm->add_state("Arrow_Detected", std::make_shared<Arrow_Detected>(nucleo_com),
-                {{"IDLE", "Idle"}, {"NAVIAGE", "Navigate"}});
+                {{"IDLE", "Idle"}, {"NAVIGATE", "Navigate"}});
 
-  sm->add_state("Cone_Detected", std::make_shared<Cone_Detected()>(nucleo_com),
+  sm->add_state("Cone_Detected", std::make_shared<Cone_Detected>(nucleo_com),
                 {{"IDLE", "Idle"}});
+
+  // set start of FSM as IDLE STATE
+  sm->set_start_state("Idle");
 
   // Execute the state machine
   try {
     std::string outcome = (*sm.get())();
   } catch (const std::exception &e) {
-    YASMIN_LOG_ERROR(e.what())
+    YASMIN_LOG_ERROR(e.what());
   }
 
   return 0;
