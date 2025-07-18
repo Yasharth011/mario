@@ -18,6 +18,6 @@ target_include_directories(serial PRIVATE ${CMAKE_SOURCE_DIR}/lib)
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE ${CMAKE_SOURCE_DIR}/lib)
+target_include_directories(mario PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 target_link_libraries(mario PRIVATE yasmin realsense2 serial)
