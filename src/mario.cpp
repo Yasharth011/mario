@@ -15,15 +15,18 @@ class Navigate : public yasmin::State {
 
 public:
   serialib serial;
-  cv::Mat frame; 
-  cv::VideoCapture capture; 
+  cv::Mat frame;
+  cv::VideoCapture capture;
 
   Navigate(serialib x, cv::Mat fm, cv::VideoCapture cap)
-      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}),
-        serial(x), frame(fm), capture(cap) {};
+      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}), serial(x),
+        frame(fm), capture(cap) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+
+    capture.read(frame);
+
     return "IDLE";
   }
 };
@@ -113,13 +116,13 @@ int main(int argc, char *argv[]) {
 
   YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT);
 
-  // open camera for object detection 
-  cv::Mat frame; 
-  cv::VideoCapture capture(0); // default camera for now 
+  // open camera for object detection
+  cv::Mat frame;
+  cv::VideoCapture capture(0); // default camera for now
   // check for errors
-  if(!capture.isOpened()) {
-	  YASMIN_LOG_ERROR("Cam : Error opening device");
-	  return -1; 
+  if (!capture.isOpened()) {
+    YASMIN_LOG_ERROR("Cam : Error opening device");
+    return -1;
   }
 
   // Create a state machine
@@ -127,7 +130,8 @@ int main(int argc, char *argv[]) {
       std::initializer_list<std::string>{"CONE_DETECTED"});
 
   // Add states to the state machine
-  sm->add_state("Navigate", std::make_shared<Navigate>(nucleo_com, frame, capture),
+  sm->add_state("Navigate",
+                std::make_shared<Navigate>(nucleo_com, frame, capture),
                 {{"IDLE", "Idle"},
                  {"ARROW_DETECTED", "Arrow_Detected"},
                  {"CONE_DETECTED", "Cone_Detected"}});
