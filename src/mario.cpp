@@ -1,13 +1,15 @@
 #include <librealsense2/rs.hpp>
 
 #include <opencv2/opencv.hpp>
-
 #include <opencv2/videoio.hpp>
+
+#include <vector>
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
 
 #include <serialib.h>
+#include <yolo.hpp>
 
 #include <mario.hpp>
 
@@ -15,17 +17,13 @@ class Navigate : public yasmin::State {
 
 public:
   serialib serial;
-  cv::Mat frame;
-  cv::VideoCapture capture;
 
-  Navigate(serialib x, cv::Mat fm, cv::VideoCapture cap)
-      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}), serial(x),
-        frame(fm), capture(cap) {};
+  Navigate(serialib x)
+      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}),
+        serial(x) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-
-    capture.read(frame);
 
     return "IDLE";
   }
@@ -117,21 +115,56 @@ int main(int argc, char *argv[]) {
   YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT);
 
   // open camera for object detection
-  cv::Mat frame;
   cv::VideoCapture capture(0); // default camera for now
+			       
   // check for errors
   if (!capture.isOpened()) {
     YASMIN_LOG_ERROR("Cam : Error opening device");
     return -1;
   }
 
+  // load YOLOV8 model
+  const std::string model_path = "../model/arrow_model.onnx";
+  const std::string labels_path = "../model/labels.names";
+  // Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLOv8");
+  // Ort::SessionOptions options;
+  // Ort::Session session(env, model_path.c_str(), options);
+  YOLO8Detector detector(model_path, labels_path, false);
+
+  // Thread-safe queues for vedio processing
+  SafeQueue<cv::Mat> frameQueue;
+  SafeQueue<std::pair<int, cv::Mat>> processQueue;
+
+  // Threads for detection
+  // Capture Thread
+  std::thread capture_thread([&]() {
+    cv::Mat frame;
+    int frame_count = 0;
+    while (capture.read(frame)) {
+      frameQueue.enqueue(frame.clone());
+      frame_count++;
+    }
+    frameQueue.setFinished();
+  });
+
+  // Processing Thread
+  std::thread processing_thread([&]() {
+    cv::Mat frame;
+    int frameIndex = 0;
+    while (frameQueue.dequeue(frame)) {
+      std::vector<Detection> results = detector.detect(frame);
+      detector.drawBoundingBox(frame, results);
+      processQueue.enqueue(std::make_pair(frameIndex++, frame));
+    }
+    processQueue.setFinished();
+  });
+
   // Create a state machine
   auto sm = std::make_shared<yasmin::StateMachine>(
       std::initializer_list<std::string>{"CONE_DETECTED"});
 
   // Add states to the state machine
-  sm->add_state("Navigate",
-                std::make_shared<Navigate>(nucleo_com, frame, capture),
+  sm->add_state("Navigate", std::make_shared<Navigate>(nucleo_com),
                 {{"IDLE", "Idle"},
                  {"ARROW_DETECTED", "Arrow_Detected"},
                  {"CONE_DETECTED", "Cone_Detected"}});
