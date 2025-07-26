@@ -34,14 +34,16 @@
               make install
             '';
           };
-
+packages.opencv = pkgs.opencv.override {
+          enableGtk2 = true;
+        };
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             cmake
             packages.yasmin
             librealsense
             onnxruntime
-            opencv
+            packages.opencv
           ];
         };
 
