@@ -1,5 +1,6 @@
 #include <librealsense2/rs.hpp>
 
+#include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
 
@@ -115,8 +116,8 @@ int main(int argc, char *argv[]) {
   YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT);
 
   // open camera for object detection
-  cv::VideoCapture capture(0); // default camera for now
-			       
+  cv::VideoCapture capture(0, cv::CAP_V4L2); // default camera for now
+
   // check for errors
   if (!capture.isOpened()) {
     YASMIN_LOG_ERROR("Cam : Error opening device");
@@ -124,16 +125,13 @@ int main(int argc, char *argv[]) {
   }
 
   // load YOLOV8 model
-  const std::string model_path = "../model/arrow_model.onnx";
-  const std::string labels_path = "../model/labels.names";
-  // Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLOv8");
-  // Ort::SessionOptions options;
-  // Ort::Session session(env, model_path.c_str(), options);
-  YOLO8Detector detector(model_path, labels_path, false);
+  const std::string model_path = "./model/arrow_model.onnx";
+  const std::string labels_path = "./model/labels.names";
+  YOLO8Detector detector(model_path, labels_path, true);
 
   // Thread-safe queues for vedio processing
   SafeQueue<cv::Mat> frameQueue;
-  SafeQueue<std::pair<int, cv::Mat>> processQueue;
+  SafeQueue<std::pair<int, cv::Mat>> processedQueue;
 
   // Threads for detection
   // Capture Thread
@@ -154,9 +152,18 @@ int main(int argc, char *argv[]) {
     while (frameQueue.dequeue(frame)) {
       std::vector<Detection> results = detector.detect(frame);
       detector.drawBoundingBox(frame, results);
-      processQueue.enqueue(std::make_pair(frameIndex++, frame));
+      processedQueue.enqueue(std::make_pair(frameIndex++, frame));
     }
-    processQueue.setFinished();
+    processedQueue.setFinished();
+  });
+
+  // Writting Thread
+  std::thread writing_thread([&]() {
+    std::pair<int, cv::Mat> processedFrame;
+    while (processedQueue.dequeue(processedFrame)) {
+      cv::imshow("Frame", processedFrame.second);
+      cv::waitKey(1);
+    }
   });
 
   // Create a state machine
@@ -183,12 +190,23 @@ int main(int argc, char *argv[]) {
   // set start of FSM as IDLE STATE
   sm->set_start_state("Idle");
 
-  // Execute the state machine
-  try {
-    std::string outcome = (*sm.get())();
-  } catch (const std::exception &e) {
-    YASMIN_LOG_ERROR(e.what());
-  }
+  // state machine thread
+  std::thread sm_thread([&]() {
+    try {
+      std::string outcome = (*sm.get())();
+    } catch (const std::exception &e) {
+      YASMIN_LOG_ERROR(e.what());
+    }
+  });
+
+  // execute threads
+  capture_thread.join();
+  processing_thread.join();
+  writing_thread.join();
+  sm_thread.join();
+
+  // release capture cam
+  capture.release();
 
   return 0;
 }
