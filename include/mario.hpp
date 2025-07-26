@@ -2,6 +2,8 @@
 # define MARIO_HPP
 
 #include <mutex>
+#include <condition_variable>
+
 struct position {
 	float x_coord; 
 	float y_coord; 
