@@ -1,9 +1,14 @@
+#include <iostream>
+
+#include <boost/program_options.hpp> 
+
 #include <librealsense2/rs.hpp>
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
 
+#include <ostream>
 #include <vector>
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
@@ -13,6 +18,8 @@
 #include <yolo.hpp>
 
 #include <mario.hpp>
+
+namespace po = boost::program_options;
 
 class Navigate : public yasmin::State {
 
@@ -54,6 +61,7 @@ public:
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+    
     return "IDLE";
   }
 };
@@ -73,6 +81,25 @@ public:
 };
 
 int main(int argc, char *argv[]) {
+
+  po::options_description desc("Allowed Options");
+
+  desc.add_options()
+	  ("help", "produce help message")
+	  ("serial", po::value<std::string>(), "serial port to nucleo")
+	  ("cam", po::value<int>(), "port number of cam")
+	  ("model", po::value<std::string>(), "path to yolo model")
+	  ("labels", po::value<std::string>(), "path to label names")
+	  ;
+
+  po::variables_map vm; 
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  if (vm.count("help")) {
+    std::cout << desc << "\n";
+    return 1;
+  }
 
   YASMIN_LOG_INFO("Configuring rover peripherals...");
 
@@ -102,10 +129,10 @@ int main(int argc, char *argv[]) {
   // serial object
   serialib nucleo_com;
 
-  char *SERIAL_PORT = argv[1];
+  std::string SERIAL_PORT = vm["serial"].as<std::string>();
 
   // open serial device
-  char errorOpening = nucleo_com.openDevice(SERIAL_PORT, 9600);
+  char errorOpening = nucleo_com.openDevice(SERIAL_PORT.c_str(), 9600);
 
   // check for errors
   if (errorOpening != 1) {
@@ -113,10 +140,10 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT);
+  YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT.c_str());
 
   // open camera for object detection
-  cv::VideoCapture capture(0, cv::CAP_V4L2); // default camera for now
+  cv::VideoCapture capture(vm["cam"].as<int>(), cv::CAP_V4L2); // default camera for now
 
   // check for errors
   if (!capture.isOpened()) {
@@ -125,8 +152,8 @@ int main(int argc, char *argv[]) {
   }
 
   // load YOLOV8 model
-  const std::string model_path = "./model/arrow_model.onnx";
-  const std::string labels_path = "./model/labels.names";
+  const std::string model_path = vm["model"].as<std::string>();
+  const std::string labels_path = vm["labels"].as<std::string>();
   YOLO8Detector detector(model_path, labels_path, true);
 
   // Thread-safe queues for vedio processing
