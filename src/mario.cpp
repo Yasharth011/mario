@@ -1,4 +1,8 @@
 #include <iostream>
+#include <memory>
+#include <ostream>
+#include <vector>
+#include <format>
 
 #include <boost/program_options.hpp> 
 
@@ -8,11 +12,10 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
 
-#include <ostream>
-#include <vector>
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
+#include <yasmin/blackboard/blackboard.hpp>
 
 #include <serialib.h>
 #include <yolo.hpp>
@@ -160,6 +163,9 @@ int main(int argc, char *argv[]) {
   SafeQueue<cv::Mat> frameQueue;
   SafeQueue<std::pair<int, cv::Mat>> processedQueue;
 
+  // Get Class Names 
+  std::vector<std::string> class_names = utils::getClassNames(labels_path);
+
   // Threads for detection
   // Capture Thread
   std::thread capture_thread([&]() {
@@ -193,9 +199,16 @@ int main(int argc, char *argv[]) {
     }
   });
 
+  // Decalre status variable in the blackboard
+  auto blackboard = std::make_shared<yasmin::blackboard::Blackboard>();
+  blackboard->set<bool>("right_arrow", false);
+  blackboard->set<bool>("left_arrow", false);
+  blackboard->set<bool>("cone", false);
+
   // Create a state machine
   auto sm = std::make_shared<yasmin::StateMachine>(
       std::initializer_list<std::string>{"CONE_DETECTED"});
+
 
   // Add states to the state machine
   sm->add_state("Navigate", std::make_shared<Navigate>(nucleo_com),
@@ -217,10 +230,12 @@ int main(int argc, char *argv[]) {
   // set start of FSM as IDLE STATE
   sm->set_start_state("Idle");
 
+
+
   // state machine thread
   std::thread sm_thread([&]() {
     try {
-      std::string outcome = (*sm.get())();
+      std::string outcome = (*sm.get())(blackboard);
     } catch (const std::exception &e) {
       YASMIN_LOG_ERROR(e.what());
     }
