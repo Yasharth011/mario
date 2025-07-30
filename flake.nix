@@ -44,6 +44,7 @@ packages.opencv = pkgs.opencv.override {
             librealsense
             onnxruntime
             packages.opencv
+	    boost
           ];
         };
 
