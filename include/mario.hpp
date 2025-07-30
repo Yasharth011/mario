@@ -2,6 +2,7 @@
 # define MARIO_HPP
 
 #include <mutex>
+#include <queue> 
 #include <condition_variable>
 
 struct position {
