@@ -13,9 +13,10 @@
 #include <opencv2/videoio.hpp>
 
 #include <yasmin/logs.hpp>
-#include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
 #include <yasmin/blackboard/blackboard.hpp>
+
+#include <taskflow/taskflow.hpp> 
 
 #include <serialib.h>
 #include <yolo.hpp>
@@ -24,64 +25,6 @@
 
 namespace po = boost::program_options;
 
-class Navigate : public yasmin::State {
-
-public:
-  serialib serial;
-
-  Navigate(serialib x)
-      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}),
-        serial(x) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-
-    return "IDLE";
-  }
-};
-
-class Idle : public yasmin::State {
-
-public:
-  serialib serial;
-
-  Idle(serialib x)
-      : yasmin::State({"NAVIGATE", "ARROW_DETECTED", "CONE_DETECTED"}),
-        serial(x) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-    return "NAVIGATE";
-  }
-};
-
-class Cone_Detected : public yasmin::State {
-
-public:
-  serialib serial;
-
-  Cone_Detected(serialib x) : yasmin::State({"IDLE"}), serial(x) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-    
-    return "IDLE";
-  }
-};
-
-class Arrow_Detected : public yasmin::State {
-
-public:
-  serialib serial;
-
-  Arrow_Detected(serialib x)
-      : yasmin::State({"NAVIGATE", "IDLE"}), serial(x) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-    return "Idle";
-  }
-};
 
 int main(int argc, char *argv[]) {
 
@@ -185,6 +128,13 @@ int main(int argc, char *argv[]) {
     while (frameQueue.dequeue(frame)) {
       std::vector<Detection> results = detector.detect(frame);
       detector.drawBoundingBox(frame, results);
+      if(results[0].classID == class_names[0])
+      	blackboard->set<bool>("right_arrow", true); 
+      else if(results[0].classID == class_names[1])
+      	blackboard->set<bool>("left_arrow", true); 
+      else if(results[0].classID == class_names[2])
+      	blackboard->set<bool>("cone", true); 
+      else continue; 
       processedQueue.enqueue(std::make_pair(frameIndex++, frame));
     }
     processedQueue.setFinished();
