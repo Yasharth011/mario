@@ -45,6 +45,7 @@ packages.opencv = pkgs.opencv.override {
             onnxruntime
             packages.opencv
 	    boost
+	    taskflow
           ];
         };
 
