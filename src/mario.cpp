@@ -56,9 +56,10 @@ int main(int argc, char *argv[]) {
   rs2::points points; // rs point obj
   cv::VideoCapture 
 	  capture(vm["cam"].as<int>(), cv::CAP_V4L2); // cam obj for YOLO 
-  const std::string model_path = 
+  cv::Mat frame; // to store cam frame
+  const std::string model_path =
 	  vm["model"].as<std::string>(); // YOLO model path 
-  const std::string labels_path = 
+  const std::string labels_path =
 	  vm["labels"].as<std::string>(); // class label path 
   YOLO8Detector detector(model_path, labels_path, true); // create onnx inference obj 
   SafeQueue<cv::Mat> frameQueue; // queue to store raw frames
@@ -66,7 +67,7 @@ int main(int argc, char *argv[]) {
   std::vector<std::string> class_names =
 	  utils::getClassNames(labels_path); // load class names 
   serialib nucleo_com; // nucleo com obj 
-  std::string SERIAL_PORT = 
+  std::string SERIAL_PORT =
 	  vm["serial"].as<std::string>(); // serial port to nucleo 
   auto sm = std::make_shared<yasmin::StateMachine>(
       std::initializer_list<std::string>{"CONE_DETECTED"}); // state machine obj 
@@ -114,7 +115,7 @@ int main(int argc, char *argv[]) {
     YASMIN_LOG_ERROR("Cam : Error opening device");
     return -1;
   }
-  YASMIN_LOG_INFO("Succesful connection to %s\n", SERIAL_PORT.c_str());
+  YASMIN_LOG_INFO("Succesful connection to cam\n");
 
   /* CONFIGURING STATE MACHINE */
 
@@ -140,62 +141,31 @@ int main(int argc, char *argv[]) {
 
   /* TASK FLOW GRAPH */
 
-  // Threads for detection
-  // Capture Thread
-  std::thread capture_thread([&]() {
-    cv::Mat frame;
-    int frame_count = 0;
-    while (capture.read(frame)) {
-      frameQueue.enqueue(frame.clone());
-      frame_count++;
-    }
-    frameQueue.setFinished();
-  });
+  // capture task 
+  auto capture_frame = taskflow.emplace([&](){
+	capture.read(frame);
+  }).name("capture_frame");
 
-  // Processing Thread
-  std::thread processing_thread([&]() {
-    cv::Mat frame;
-    int frameIndex = 0;
-    while (frameQueue.dequeue(frame)) {
-      std::vector<Detection> results = detector.detect(frame);
-      detector.drawBoundingBox(frame, results);
-      if(results[0].classID == class_names[0])
-      	blackboard->set<bool>("right_arrow", true); 
-      else if(results[0].classID == class_names[1])
-      	blackboard->set<bool>("left_arrow", true); 
-      else if(results[0].classID == class_names[2])
-      	blackboard->set<bool>("cone", true); 
-      else continue; 
-      processedQueue.enqueue(std::make_pair(frameIndex++, frame));
-    }
-    processedQueue.setFinished();
-  });
+  // yolo task 
+  auto yolo = taskflow.emplace([&](){
+	std::vector<Detection> results = 
+				detector.detect(frame);
+	detector.drawBoundingBox(frame, results);
+	cv::imshow("frame", frame); 
+	cv::waitKey(1);
+  }).name("yolo"); 
 
-  // Writting Thread
-  std::thread writing_thread([&]() {
-    std::pair<int, cv::Mat> processedFrame;
-    while (processedQueue.dequeue(processedFrame)) {
-      cv::imshow("Frame", processedFrame.second);
-      cv::waitKey(1);
-    }
-  });
+  // state machine task 
+  //   try {
+  //     std::string outcome = (*sm.get())(blackboard);
+  //   } catch (const std::exception &e) {
+  //     YASMIN_LOG_ERROR(e.what());
+  //   }
 
-
-  // state machine thread
-  std::thread sm_thread([&]() {
-    try {
-      std::string outcome = (*sm.get())(blackboard);
-    } catch (const std::exception &e) {
-      YASMIN_LOG_ERROR(e.what());
-    }
-  });
-
-  // execute threads
-  capture_thread.join();
-  processing_thread.join();
-  writing_thread.join();
-  sm_thread.join();
-
+  capture_frame.precede(yolo);
+  while(true){
+  executor.run(taskflow).wait();}
+  
   // release capture cam
   capture.release();
 
