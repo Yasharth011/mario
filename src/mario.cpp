@@ -73,6 +73,10 @@ int main(int argc, char *argv[]) {
       std::initializer_list<std::string>{"CONE_DETECTED"}); // state machine obj 
   auto blackboard = 
       std::make_shared<yasmin::blackboard::Blackboard>(); // init blackboard 
+  // set blacboard variables
+  blackboard->set<float>("right_arrow", 0.0);
+  blackboard->set<float>("left_arrow", 0.0);
+  blackboard->set<float>("cone", 0.0);
 
   /* CONFIGURING PERIPHERALS */
 
@@ -148,11 +152,24 @@ int main(int argc, char *argv[]) {
 
   // yolo task 
   auto yolo = taskflow.emplace([&](){
+
 	std::vector<Detection> results = 
 				detector.detect(frame);
+
 	detector.drawBoundingBox(frame, results);
+	
+	for(Detection result : results){
+		if(result.classId==0)
+		blackboard->set<float>("right_arrow", result.conf);
+		if(result.classId==1)
+		blackboard->set<float>("left_arrow", result.conf);
+		if(result.classId==2)
+		blackboard->set<float>("cone", result.conf);
+	}
+
 	cv::imshow("frame", frame); 
 	cv::waitKey(1);
+
   }).name("yolo"); 
 
   // state machine task 
@@ -163,6 +180,7 @@ int main(int argc, char *argv[]) {
   //   }
 
   capture_frame.precede(yolo);
+
   while(true){
   executor.run(taskflow).wait();}
   
