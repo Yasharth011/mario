@@ -15,12 +15,17 @@ find_package(realsense2 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(onnxruntime REQUIRED)
 find_package(Boost 1.87.0 COMPONENTS program_options REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(PCL REQUIRED)
 
 add_library(serial ${CMAKE_SOURCE_DIR}/src/serialib.cpp)
-target_include_directories(serial PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(serial PRIVATE ${CMAKE_SOURCE_DIR}/include )
+
+add_library(mapping ${CMAKE_SOURCE_DIR}/src/mapping.cpp)
+target_include_directories(mapping PRIVATE ${CMAKE_SOURCE_DIR}/include ${PCL_INCLUDE_DIRS})
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PUBLIC ${OpenCV_INCLUDE_DIRS} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(mario PUBLIC ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
-target_link_libraries(mario PUBLIC ${OpenCV_LIBS} onnxruntime PRIVATE yasmin realsense2 serial Boost::program_options)
+target_link_libraries(mario PUBLIC ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} PRIVATE yasmin realsense2 serial Boost::program_options mapping)

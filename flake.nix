@@ -48,6 +48,8 @@
             packages.opencv
 	    boost
 	    taskflow
+	    eigen
+	    pcl
           ];
         };
 
