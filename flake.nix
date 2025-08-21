@@ -35,9 +35,7 @@
             '';
           };
 
-        packages.opencv = pkgs.opencv.override {
-          enableGtk2 = true;
-        };
+        packages.opencv = pkgs.opencv.override { enableGtk2 = true; };
 
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
@@ -46,10 +44,10 @@
             librealsense
             onnxruntime
             packages.opencv
-	    boost
-	    taskflow
-	    eigen
-	    pcl
+            boost
+            taskflow
+            eigen
+            pcl
           ];
         };
 
