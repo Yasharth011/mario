@@ -11,6 +11,7 @@
 #include <librealsense2/rs.hpp>
 
 #include <vector>
+#include <set>
 
 struct CellCost {
     float cost;
@@ -50,10 +51,25 @@ struct Pose {
 };
 
 
+struct Node {
+    float x, y;
+    double g_cost, h_cost, f_cost;
+    std::shared_ptr<Node> parent;
+
+    Node(float x, float y, double g_cost = 0, double h_cost = 0, std::shared_ptr<Node> parent = nullptr)
+        : x(x), y(y), g_cost(g_cost), h_cost(h_cost), f_cost(g_cost + h_cost), parent(std::move(parent)) {}
+
+    bool operator>(const Node& other) const { return f_cost > other.f_cost; }
+    bool operator==(const Node& other) const { return (x == other.x) && (y == other.y); }
+};
 
 // Function declaration for creating a grid map
 void create_gridmap(Gridmap &gridmap, const std::vector<Eigen::Vector3f> &point_vectors,
                     const Pose &roverpose, float grid_resolution, float height, float prox_factor);
+
+void path_plan(Gridmap &gridmap, Node &goal, Vector<Node> &path,
+               std::set<std::pair<int, int>> &visited_nodes,
+               std::set<std::pair<int, int>> &failed_goals);
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr
 convert_to_pcl(const std::vector<Eigen::Vector3f> &point_vectors);
