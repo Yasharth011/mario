@@ -21,9 +21,6 @@ find_package(PCL REQUIRED)
 add_library(serial ${CMAKE_SOURCE_DIR}/src/serialib.cpp)
 target_include_directories(serial PRIVATE ${CMAKE_SOURCE_DIR}/include )
 
-add_library(mapping ${CMAKE_SOURCE_DIR}/src/mapping.cpp)
-target_include_directories(mapping PRIVATE ${CMAKE_SOURCE_DIR}/include ${PCL_INCLUDE_DIRS})
-
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
 target_include_directories(mario PUBLIC ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} PRIVATE ${CMAKE_SOURCE_DIR}/include)
