@@ -33,6 +33,66 @@
 
 namespace po = boost::program_options;
 
+class Navigate : public yasmin::State {
+
+public:
+  serialib serial;
+
+  Navigate(serialib x)
+      : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}),
+        serial(x) {};
+
+  std::string
+  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+
+    return "IDLE";
+  }
+};
+
+class Idle : public yasmin::State {
+
+public:
+  serialib serial;
+
+  Idle(serialib x)
+      : yasmin::State({"NAVIGATE", "ARROW_DETECTED", "CONE_DETECTED"}),
+        serial(x) {};
+
+  std::string
+  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+
+    return "NAVIGATE";
+  }
+};
+
+class Cone_Detected : public yasmin::State {
+
+public:
+  serialib serial;
+
+  Cone_Detected(serialib x) : yasmin::State({"IDLE"}), serial(x) {};
+
+  std::string
+  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+    
+    return "IDLE";
+  }
+};
+
+class Arrow_Detected : public yasmin::State {
+
+public:
+  serialib serial;
+
+  Arrow_Detected(serialib x)
+      : yasmin::State({"NAVIGATE", "IDLE"}), serial(x) {};
+
+  std::string
+  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+    return "Idle";
+  }
+};
+
 int main(int argc, char *argv[]) {
 
   // Command Line Options
@@ -64,6 +124,9 @@ int main(int argc, char *argv[]) {
   float grid_resolution = 0.001f;
   float height = 2.0;
   float prox_factor = 0.0;
+  int counter; 
+  int limit = 20;
+  int adder; 
   /* TEMP FOR IMU POSE IMPL  */
   rs2_vector accel_data = {0.0f, 0.0f, 0.0f};
   rs2_vector gyro_data = {0.0f, 0.0f, 0.0f};
@@ -82,9 +145,9 @@ int main(int argc, char *argv[]) {
       vm["labels"].as<std::string>(); // class label path
   YOLO8Detector detector(model_path, labels_path,
                          true);  // create onnx inference obj
-  SafeQueue<cv::Mat> frameQueue; // queue to store raw frames
-  SafeQueue<std::pair<int, cv::Mat>>
-      processedQueue; // queue to store processed frames
+  // SafeQueue<cv::Mat> frameQueue; // queue to store raw frames
+  // SafeQueue<std::pair<int, cv::Mat>>
+      // processedQueue; // queue to store processed frames
   std::vector<std::string> class_names =
       utils::getClassNames(labels_path); // load class names
   serialib nucleo_com;                   // nucleo com obj
@@ -240,7 +303,7 @@ int main(int argc, char *argv[]) {
 
   // mapping task
   auto mapping = taskflow
-                     .emplace([&] {
+                     .emplace([&](){
                        // Process depth data to create point cloud
                        rs2::depth_frame depth_frame =
                            frameset.get_depth_frame();
@@ -282,9 +345,17 @@ int main(int argc, char *argv[]) {
 
                        create_gridmap(gridmap, point_vectors, rover_pose,
                                       grid_resolution, height, prox_factor);
+
+                       counter = gridmap.occupancy_grid.size() - adder;
+
+                       if (counter >= limit) {
+			 return 1; 
+                         adder = 20;
+                       } else return 0; 
                      })
                      .name("mapping");
-  auto path_planning = taskflow.emplace([&] {
+
+  auto path_planning = taskflow.emplace([&](){
 
 		  }).name("path_planning");
 
@@ -295,13 +366,14 @@ int main(int argc, char *argv[]) {
   //     YASMIN_LOG_ERROR(e.what());
   //   }
 
+  // define task graph 
   capture_frame.precede(yolo);
   capture_frame.precede(slam);
   slam.precede(mapping);
+  mapping.precede(capture_frame);
+  mapping.precede(path_planning);
 
-  while (true) {
-    executor.run(taskflow).wait();
-  }
+  executor.run(taskflow).wait();
 
   // release capture cam
   capture.release();
