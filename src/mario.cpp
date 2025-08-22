@@ -25,7 +25,6 @@
 
 #include <taskflow/taskflow.hpp>
 
-#include <mapping.hpp>
 #include <serialib.h>
 #include <yolo.hpp>
 
