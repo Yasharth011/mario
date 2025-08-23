@@ -1,7 +1,12 @@
-#include <tarzan.hpp>
 #include <cobs.h>
+#include <cstddef>
+#include <cstdint>
 
-void Serial::asyncWriteHandler(const boost::system::error_code &error,
+#include "tarzan.hpp"
+
+constexpr size_t TARZAN_MSG_LEN = sizeof(Tarzan::tarzan_msg)+2;
+
+void Tarzan::asyncWriteHandler(const boost::system::error_code &error,
                                std::size_t bytes_transferred) {
   std::unique_lock<std::mutex> elk(error_mtx);
   if (error) {
@@ -16,7 +21,7 @@ void Serial::asyncWriteHandler(const boost::system::error_code &error,
                         // continue
 }
 
-void Serial::asyncWrite(const std::vector<uint8_t> &msg) {
+void Tarzan::asyncWrite(const uint8_t msg[TARZAN_MSG_LEN]) {
 
   std::unique_lock<std::mutex> lock(write_mtx);
 
@@ -27,13 +32,26 @@ void Serial::asyncWrite(const std::vector<uint8_t> &msg) {
 
   lock.unlock();
 
-  async_write(serial, buffer(msg, msg.size()),
+  async_write(Tarzan::serial, buffer(msg, TARZAN_MSG_LEN),
               [this](const boost::system::error_code &error,
                      std::size_t bytes_transferred) {
                 asyncWriteHandler(error, bytes_transferred);
               });
 }
 
-// void write_msg(const tarzan_msg &msg){
-//
-// } 
+void Tarzan::write_msg(const Tarzan::tarzan_msg &msg){
+
+  uint8_t buffer[TARZAN_MSG_LEN];
+
+  if (auto result = cobs_encode(
+          reinterpret_cast<void *>(buffer), sizeof(TARZAN_MSG_LEN),
+          reinterpret_cast<const void *>(&msg), sizeof(TARZAN_MSG_LEN));
+      result.status != COBS_ENCODE_OK) {
+	  // log COBS_DECODE_ERROR
+  }
+
+  buffer[TARZAN_MSG_LEN-1] = 0x00;
+
+  Tarzan::asyncWrite(buffer);
+} 
+

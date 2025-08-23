@@ -3,13 +3,13 @@
 
 #include <boost/asio.hpp>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <stdint.h>
-#include <vector>
 
 using namespace boost::asio;
 
-class Serial {
+class Tarzan {
 
 private:
   /* msg struct for Tarzan msg */
@@ -51,6 +51,7 @@ private:
   std::condition_variable writeCV;
 
 public:
+
   serial_port serial; // serial port
 
   // msg to write
@@ -62,10 +63,7 @@ public:
     uint32_t crc;
   };
 
-  const int TARZAN_MSG_LEN =
-      sizeof(struct tarzan_msg) + 2; // len of msg to write
-
-  Serial(io_context &io, const std::string port, unsigned int baud_rate)
+  Tarzan(io_context &io, const std::string port, unsigned int baud_rate)
       : serial(io, port) {
     serial.set_option(serial_port_base::baud_rate(baud_rate));
     serial.set_option(serial_port_base::character_size(8));
@@ -79,8 +77,10 @@ public:
   void asyncWriteHandler(const boost::system::error_code &error,
                          std::size_t bytes_transferred);
 
-  void asyncWrite(const std::vector<uint8_t> &msg);
+  void asyncWrite(const uint8_t msg[]);
 
   void write_msg(const tarzan_msg &msg);
+
 };
+
 #endif
