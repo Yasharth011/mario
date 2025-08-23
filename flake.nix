@@ -37,8 +37,24 @@
 
         packages.opencv = pkgs.opencv.override { enableGtk2 = true; };
 
+        packages.cobs-c = with pkgs;
+          stdenv.mkDerivation {
+            name = "cobs-c";
+            src = fetchFromGitHub {
+              owner = "cmcqueen";
+              repo = "cobs-c";
+              rev = "6cc55cddb06568bc026ed85f8e5f433496a3622c";
+              sha256 = "sha256-aIWT5w3KUHEzxiWuHlfNWuxvjuCGX2nCBFYHNmYc2Is=";
+            };
+            nativeBuildInputs = [ pkg-config validatePkgConfig autoreconfHook ];
+            passthru.tests.pkg-config = testers.hasPkgConfigModule {
+              package = finalAttrs.finalPackage;
+              moduleName = "cobs";
+            };
+          };
+
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
+          buildInputs = with pkgs; [
             cmake
             packages.yasmin
             librealsense
@@ -48,6 +64,7 @@
             taskflow
             eigen
             pcl
+            packages.cobs-c
           ];
         };
 
