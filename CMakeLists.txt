@@ -17,12 +17,15 @@ find_package(onnxruntime REQUIRED)
 find_package(Boost 1.87.0 COMPONENTS program_options REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
+pkg_check_modules(Asio asio)
+pkg_check_modules(Cobs cobs)
 
-add_library(serial ${CMAKE_SOURCE_DIR}/src/serialib.cpp)
-target_include_directories(serial PRIVATE ${CMAKE_SOURCE_DIR}/include )
+add_library(tarzan src/tarzan.cpp )
+target_include_directories(tarzan PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
+target_link_libraries(tarzan ${Cobs_LDFLAGS})
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PUBLIC ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(mario PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS})
 
-target_link_libraries(mario PUBLIC ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} PRIVATE yasmin realsense2 serial Boost::program_options mapping)
+target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 serial Boost::program_options tarzan)
