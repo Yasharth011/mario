@@ -56,12 +56,12 @@
         devShells.default = pkgs.mkShell {
 	  nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
-            cmake
             packages.yasmin
             librealsense
             onnxruntime
             packages.opencv
             boost
+	    asio
             taskflow
             eigen
             pcl
