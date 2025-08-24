@@ -73,6 +73,10 @@ public:
   void asyncWrite(const uint8_t msg[]);
 
   void write_msg(const tarzan_msg &msg);
+
+  uint32_t crc32_ieee(const uint8_t *data, size_t len);
+
+  uint32_t crc32_ieee_update(uint32_t crc, const uint8_t *data, size_t len);
 };
 
 #endif
