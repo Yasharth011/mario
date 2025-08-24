@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
   Tarzan::tarzan_msg msg;
   msg.cmd.linear_x = 1.0;
   msg.cmd.angular_z = 0.5;
-  msg.crc = 0; 
+  msg.crc = 0;
 
   std::cout << "writing message" << std::endl;
 

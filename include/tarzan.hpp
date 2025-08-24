@@ -51,7 +51,6 @@ private:
   std::condition_variable writeCV;
 
 public:
-
   serial_port serial; // serial port
 
   // msg to write
@@ -74,7 +73,6 @@ public:
   void asyncWrite(const uint8_t msg[]);
 
   void write_msg(const tarzan_msg &msg);
-
 };
 
 #endif
