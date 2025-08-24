@@ -66,6 +66,7 @@
             eigen
             pcl
             packages.cobs-c
+	    catch2
           ];
         };
 
