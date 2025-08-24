@@ -66,12 +66,6 @@ public:
   Tarzan(io_context &io, const std::string port, unsigned int baud_rate)
       : serial(io, port) {
     serial.set_option(serial_port_base::baud_rate(baud_rate));
-    serial.set_option(serial_port_base::character_size(8));
-    serial.set_option(
-        serial_port_base::stop_bits(serial_port_base::stop_bits::one));
-    serial.set_option(serial_port_base::parity(serial_port_base::parity::none));
-    serial.set_option(
-        serial_port_base::flow_control(serial_port_base::flow_control::none));
   }
 
   void asyncWriteHandler(const boost::system::error_code &error,
