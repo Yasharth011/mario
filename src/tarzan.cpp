@@ -10,7 +10,7 @@ void Tarzan::asyncWriteHandler(const boost::system::error_code &error,
                                std::size_t bytes_transferred) {
   std::unique_lock<std::mutex> elk(error_mtx);
   if (error) {
-	  err = error.value(); 
+    err = error.value();
   }
   elk.unlock();
 
@@ -53,7 +53,7 @@ Tarzan::Error Tarzan::write_msg(const Tarzan::tarzan_msg &msg) {
           reinterpret_cast<void *>(buffer), sizeof(TARZAN_MSG_LEN),
           reinterpret_cast<const void *>(&msg), sizeof(TARZAN_MSG_LEN));
       result.status != COBS_ENCODE_OK) {
-	  return Tarzan::Error::CobsEncodeError;
+    return Tarzan::Error::CobsEncodeError;
   }
 
   buffer[TARZAN_MSG_LEN - 1] = 0x00;
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
   msg.crc = nucleo.crc32_ieee(
       (uint8_t *)&msg, sizeof(struct Tarzan::tarzan_msg) - sizeof(msg.crc));
 
-  std::cout << "crc = "<<msg.crc;
+  std::cout << "crc = " << msg.crc;
   std::cout << "writing message" << std::endl;
 
   nucleo.write_msg(msg);
