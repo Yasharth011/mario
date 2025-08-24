@@ -4,7 +4,7 @@
 
 #include "tarzan.hpp"
 
-constexpr size_t TARZAN_MSG_LEN = sizeof(Tarzan::tarzan_msg)+2;
+constexpr size_t TARZAN_MSG_LEN = sizeof(Tarzan::tarzan_msg) + 2;
 
 void Tarzan::asyncWriteHandler(const boost::system::error_code &error,
                                std::size_t bytes_transferred) {
@@ -39,7 +39,7 @@ void Tarzan::asyncWrite(const uint8_t msg[TARZAN_MSG_LEN]) {
               });
 }
 
-void Tarzan::write_msg(const Tarzan::tarzan_msg &msg){
+void Tarzan::write_msg(const Tarzan::tarzan_msg &msg) {
 
   uint8_t buffer[TARZAN_MSG_LEN];
 
@@ -47,11 +47,30 @@ void Tarzan::write_msg(const Tarzan::tarzan_msg &msg){
           reinterpret_cast<void *>(buffer), sizeof(TARZAN_MSG_LEN),
           reinterpret_cast<const void *>(&msg), sizeof(TARZAN_MSG_LEN));
       result.status != COBS_ENCODE_OK) {
-	  // log COBS_DECODE_ERROR
+    // log COBS_DECODE_ERROR
   }
 
-  buffer[TARZAN_MSG_LEN-1] = 0x00;
+  buffer[TARZAN_MSG_LEN - 1] = 0x00;
 
   Tarzan::asyncWrite(buffer);
-} 
+}
 
+#ifdef TARZAN_TEST_CPP
+#include <iostream>
+
+int main(int argc, char *argv[]) {
+
+  std::string port = argv[1];
+  boost::asio::io_context io;
+  Tarzan nucleo(io, port, 9600);
+
+  Tarzan::tarzan_msg msg;
+  msg.cmd.linear_x = 1.0;
+  msg.cmd.angular_z = 0.5;
+  msg.crc = 0; 
+
+  std::cout << "writing message" << std::endl;
+
+  nucleo.write_msg(msg);
+}
+#endif
