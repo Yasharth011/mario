@@ -77,9 +77,9 @@ int Tarzan::open() {
   try {
     serial.open(Tarzan::port);
     serial.set_option(serial_port_base::baud_rate(Tarzan::baudrate));
-    return 0;
-  } catch (...) {
     return 1;
+  } catch (...) {
+    return 0;
   }
 }
 
