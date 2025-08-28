@@ -121,6 +121,7 @@ const char *get_error(enum Tarzan::Error err) {
     return "Asio Serial Write Error";
     break;
   };
+  return "Undefined Error";
 }
 
 #ifdef TARZAN_TEST_CPP
