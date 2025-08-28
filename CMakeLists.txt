@@ -17,7 +17,6 @@ find_package(onnxruntime REQUIRED)
 find_package(Boost 1.87.0 COMPONENTS program_options REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
-find_package(Catch2 REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
@@ -30,7 +29,7 @@ if(BUILD_TEST)
 	# tarzan test 
 	add_executable(tarzan_test src/tarzan.cpp)
 	target_compile_definitions(tarzan_test PRIVATE TARZAN_TEST_CPP=1)
-	target_link_libraries(tarzan_test PRIVATE tarzan Catch2::Catch2)
+	target_link_libraries(tarzan_test PRIVATE tarzan)
 endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
