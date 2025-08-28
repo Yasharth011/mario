@@ -71,6 +71,18 @@ public:
 
   Tarzan(io_context &io, const std::string port, unsigned int baud_rate)
       : serial(io, port) {
+
+    // close if port was already opened
+    if (serial.is_open())
+      close();
+
+    try {
+      serial.open(port);
+    } catch (...) {
+    }
+
+    if (!serial.is_open())
+      return;
     serial.set_option(serial_port_base::baud_rate(baud_rate));
   }
 
@@ -80,6 +92,8 @@ public:
   Error asyncWrite(const uint8_t msg[]);
 
   Error write_msg(const tarzan_msg &msg);
+
+  void close();
 
   uint32_t crc32_ieee(const uint8_t *data, size_t len);
 

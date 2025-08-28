@@ -61,6 +61,13 @@ Tarzan::Error Tarzan::write_msg(const Tarzan::tarzan_msg &msg) {
   return Tarzan::asyncWrite(buffer);
 }
 
+void Tarzan::close() {
+  if (!Tarzan::serial.is_open())
+    return;
+  Tarzan::serial.cancel(); // cancel all pending async processes
+  Tarzan::serial.close();  // close the serial port
+}
+
 uint32_t Tarzan::crc32_ieee(const uint8_t *data, size_t len) {
   return crc32_ieee_update(0x0, data, len);
 }
