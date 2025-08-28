@@ -68,6 +68,21 @@ void Tarzan::close() {
   Tarzan::serial.close();  // close the serial port
 }
 
+int Tarzan::open() {
+
+  // close if port was already opened
+  if (serial.is_open())
+    close();
+
+  try {
+    serial.open(Tarzan::port);
+    serial.set_option(serial_port_base::baud_rate(Tarzan::baudrate));
+    return 0;
+  } catch (...) {
+    return 1;
+  }
+}
+
 uint32_t Tarzan::crc32_ieee(const uint8_t *data, size_t len) {
   return crc32_ieee_update(0x0, data, len);
 }
