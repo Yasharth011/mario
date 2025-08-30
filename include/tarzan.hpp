@@ -49,10 +49,16 @@ private:
   std::mutex error_mtx; // mutex to gaurd error in async write
   bool writeLocked = false;
   std::condition_variable writeCV;
+  int err;
 
 public:
-
   serial_port serial; // serial port
+
+  enum Error : uint8_t {
+	  WriteSuccess = 0, 
+	  CobsEncodeError,
+	  AsioWriteError
+  };
 
   // msg to write
   struct tarzan_msg {
@@ -71,10 +77,15 @@ public:
   void asyncWriteHandler(const boost::system::error_code &error,
                          std::size_t bytes_transferred);
 
-  void asyncWrite(const uint8_t msg[]);
+  Error asyncWrite(const uint8_t msg[]);
 
-  void write_msg(const tarzan_msg &msg);
+  Error write_msg(const tarzan_msg &msg);
 
+  uint32_t crc32_ieee(const uint8_t *data, size_t len);
+
+  uint32_t crc32_ieee_update(uint32_t crc, const uint8_t *data, size_t len);
+
+  const char* get_error(enum Error err);
 };
 
 #endif

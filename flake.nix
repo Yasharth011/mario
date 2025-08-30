@@ -53,20 +53,66 @@
             };
           };
 
+        packages.rerun_cpp = with pkgs;
+          stdenv.mkDerivation {
+            name = "rerun_cpp";
+            src = fetchzip {
+              url =
+                "https://github.com/rerun-io/rerun/releases/download/0.24.1/rerun_cpp_sdk.zip";
+              hash = "sha256-FzoLGeZMp5N5VRNT+QO8u7XobhxrqM1TyNVfAXsIHTY=";
+            };
+            nativeBuildInputs = [ cmake pkg-config ];
+            propagatedBuildInputs = [ arrow-cpp ];
+            configurePhase = ''
+              mkdir build && cd build
+              cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$out \
+              -DRERUN_DOWNLOAD_AND_BUILD_ARROW=OFF -DRERUN_ARROW_LINK_SHARED=ON
+            '';
+            meta = { description = "C++ bindings for rerun.io"; };
+          };
+
+        packages.path-planning = with pkgs;
+          stdenv.mkDerivation {
+            name = "path-planning";
+            src = fetchFromGitHub {
+              owner = "CPPavithra";
+              repo = "PathPlanning-Astar";
+              rev = "becfd3604c8a8f327c1f7650f455072fad78da1a"; # v0.1
+              sha256 = "sha256-5bRL6/ZkN/Lw6d8dZl30Odg1q9l4NT8ctA1zR531WOU=";
+            };
+            nativeBuildInputs = [ cmake ];
+            propagatedBuildInputs = [
+	      pkgs.eigen
+              pkgs.librealsense
+	      pkgs.boost
+              pkgs.pcl
+	      packages.rerun_cpp
+              packages.opencv
+            ];
+            configurePhase = ''
+                          mkdir build && cd build 
+                          cmake .. -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX=$out
+            '';
+            buildPhase = "  make ";
+            installPhase = ''
+              make install
+            '';
+          };
+
         devShells.default = pkgs.mkShell {
-	  nativeBuildInputs = with pkgs; [ cmake pkg-config ];
+          nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
             packages.yasmin
-            librealsense
+            # librealsense
             onnxruntime
-            packages.opencv
-            boost
-	    asio
+            # packages.opencv
+            # boost
+            asio
             taskflow
-            eigen
-            pcl
+            # eigen
+            # pcl
             packages.cobs-c
-	    catch2
+            packages.path-planning
           ];
         };
 
