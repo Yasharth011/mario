@@ -18,6 +18,7 @@ find_package(Boost 1.87.0 COMPONENTS program_options REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(motionplanner REQUIRED)
+find_package(rerun_sdk REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
@@ -35,6 +36,6 @@ endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS})
+target_include_directories(mario PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} ${rerun_sdk_INCLUDE_DIRS})
 
-target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 Boost::program_options tarzan motionplanner)
+target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 Boost::program_options tarzan motionplanner rerun_sdk)
