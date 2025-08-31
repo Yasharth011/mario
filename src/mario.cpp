@@ -1,14 +1,21 @@
-#include <Eigen/Dense>
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <librealsense2/h/rs_types.h>
 #include <memory>
 #include <ostream>
+#include <rerun/recording_stream.hpp>
 #include <vector>
 
 #include <boost/program_options.hpp>
 
 #include <librealsense2/rs.hpp>
+
+#include <Eigen/Dense>
+#include <Eigen/src/Core/Matrix.h>
+
+#include <motionplanner.h>
+#include <mapping.h>
 
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/voxel_grid.h>
@@ -21,11 +28,14 @@
 
 #include <yasmin/blackboard/blackboard.hpp>
 #include <yasmin/logs.hpp>
+#include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
 
 #include <taskflow/taskflow.hpp>
 
-#include <serialib.h>
+#include <rerun.hpp>
+
+#include <tarzan.hpp>
 #include <yolo.hpp>
 
 #include <mario.hpp>
@@ -35,11 +45,11 @@ namespace po = boost::program_options;
 class Navigate : public yasmin::State {
 
 public:
-  serialib serial;
+  Tarzan &nucleo_com;
 
-  Navigate(serialib x)
+  Navigate(Tarzan &com)
       : yasmin::State({"IDLE", "ARROW_DETECTED", "CONE_DETECTED"}),
-        serial(x) {};
+        nucleo_com(com) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -51,11 +61,11 @@ public:
 class Idle : public yasmin::State {
 
 public:
-  serialib serial;
+  Tarzan &nucleo_com;
 
-  Idle(serialib x)
+  Idle(Tarzan &com)
       : yasmin::State({"NAVIGATE", "ARROW_DETECTED", "CONE_DETECTED"}),
-        serial(x) {};
+        nucleo_com(com) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -67,13 +77,13 @@ public:
 class Cone_Detected : public yasmin::State {
 
 public:
-  serialib serial;
+  Tarzan &nucleo_com;
 
-  Cone_Detected(serialib x) : yasmin::State({"IDLE"}), serial(x) {};
+  Cone_Detected(Tarzan &com) : yasmin::State({"IDLE"}), nucleo_com(com) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-    
+
     return "IDLE";
   }
 };
@@ -81,10 +91,10 @@ public:
 class Arrow_Detected : public yasmin::State {
 
 public:
-  serialib serial;
+  Tarzan &nucleo_com;
 
-  Arrow_Detected(serialib x)
-      : yasmin::State({"NAVIGATE", "IDLE"}), serial(x) {};
+  Arrow_Detected(Tarzan &com)
+      : yasmin::State({"NAVIGATE", "IDLE"}), nucleo_com(com) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -99,7 +109,7 @@ int main(int argc, char *argv[]) {
 
   desc.add_options()("help", "produce help message")(
       "serial", po::value<std::string>(),
-      "serial port to nucleo")("cam", po::value<int>(), "port number of cam")(
+      "serial port to nucleo")("cam", po::value<int>(), "port number of cam")("br", po::value<int>(), "baudrate for com with controller")(
       "model", po::value<std::string>(), "path to yolo model")(
       "labels", po::value<std::string>(), "path to label names");
 
@@ -112,29 +122,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  tf::Executor executor;  // creating exectutor
-  tf::Taskflow taskflow;  // & taskflow graph obj
+  /* taskflow vars*/
+  tf::Executor executor; // creating exectutor
+  tf::Taskflow taskflow; // & taskflow graph obj
+
+  /* relasense vars*/
   rs2::pipeline pipe;     // creating rs
   rs2::config cfg;        // pipeline & cfg obj
   rs2::frameset frameset; // rs frames obj
   rs2::pointcloud pc;     // rs pointcloud
   rs2::points points;     // rs point obj
-  Gridmap gridmap;        // store gridmap
-  float grid_resolution = 0.001f;
-  float height = 2.0;
-  float prox_factor = 0.0;
-  int counter; 
-  int limit = 20;
-  int adder; 
-  /* TEMP FOR IMU POSE IMPL  */
-  rs2_vector accel_data = {0.0f, 0.0f, 0.0f};
-  rs2_vector gyro_data = {0.0f, 0.0f, 0.0f};
-  static auto last_time = std::chrono::high_resolution_clock::now();
-  auto current_time = std::chrono::high_resolution_clock::now();
-  float delta_time =
-      std::chrono::duration<float>(current_time - last_time).count();
-  Pose rover_pose;
-  /* ---- */
+			  
+  /* rerun vars */
+  const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
+
+  /* path planning vars */
+
+  /* YOLO vars */
   cv::VideoCapture capture(vm["cam"].as<int>(),
                            cv::CAP_V4L2); // cam obj for YOLO
   cv::Mat frame;                          // to store cam frame
@@ -143,15 +147,21 @@ int main(int argc, char *argv[]) {
   const std::string labels_path =
       vm["labels"].as<std::string>(); // class label path
   YOLO8Detector detector(model_path, labels_path,
-                         true);  // create onnx inference obj
+                         true); // create onnx inference obj
   // SafeQueue<cv::Mat> frameQueue; // queue to store raw frames
   // SafeQueue<std::pair<int, cv::Mat>>
-      // processedQueue; // queue to store processed frames
+  // processedQueue; // queue to store processed frames
   std::vector<std::string> class_names =
       utils::getClassNames(labels_path); // load class names
-  serialib nucleo_com;                   // nucleo com obj
-  std::string SERIAL_PORT =
+
+  /* Tarzan com vars*/
+  const std::string SERIAL_PORT =
       vm["serial"].as<std::string>(); // serial port to nucleo
+  const int BAUDRATE = vm["br"].as<int>();
+  boost::asio::io_context io;
+  Tarzan nucleo_com(io, SERIAL_PORT, BAUDRATE);
+
+  /* Yasmin vars*/
   auto sm = std::make_shared<yasmin::StateMachine>(
       std::initializer_list<std::string>{"CONE_DETECTED"}); // state machine obj
   auto blackboard =
@@ -185,11 +195,8 @@ int main(int argc, char *argv[]) {
 
   /* CONFIGURING NUCLEO COM */
 
-  // open serial device
-  char errorOpening = nucleo_com.openDevice(SERIAL_PORT.c_str(), 9600);
-
   // check for errors
-  if (errorOpening != 1) {
+  if (!nucleo_com.open()) {
     YASMIN_LOG_ERROR("Nucleo : Error opening device");
     return -1;
   }
@@ -270,89 +277,15 @@ int main(int argc, char *argv[]) {
   auto slam =
       taskflow
           .emplace([&]() {
-            // calculating time difference
-            last_time = std::chrono::high_resolution_clock::now();
-            current_time = std::chrono::high_resolution_clock::now();
-            delta_time =
-                std::chrono::duration<float>(current_time - last_time).count();
-            last_time = current_time;
-
-            // Get accel data
-            if (rs2::motion_frame accel_frame =
-                    frameset.first_or_default(RS2_STREAM_ACCEL)) {
-              accel_data = accel_frame.get_motion_data();
-            } else {
-              YASMIN_LOG_ERROR("Failed to retrieve accelerometer data\n");
-            }
-
-            // Get gyroscope data
-            if (rs2::motion_frame gyro_frame =
-                    frameset.first_or_default(RS2_STREAM_GYRO)) {
-              gyro_data = gyro_frame.get_motion_data();
-            } else {
-              YASMIN_LOG_ERROR("Failed to retrieve gyroscope data\n");
-            }
-
-            // Update rover pose
-            Eigen::Vector3f accel_eigen = convert_to_eigen_vector(accel_data);
-            Eigen::Vector3f gyro_eigen = convert_to_eigen_vector(gyro_data);
-            update_rover_pose(rover_pose, accel_eigen, gyro_eigen, delta_time);
           })
           .name("slam");
 
   // mapping task
-  auto mapping = taskflow
-                     .emplace([&](){
-                       // Process depth data to create point cloud
-                       rs2::depth_frame depth_frame =
-                           frameset.get_depth_frame();
-                       rs2::points points = pc.calculate(depth_frame);
-
-                       std::vector<Eigen::Vector3f> point_vectors;
-                       for (size_t i = 0; i < points.size(); ++i) {
-                         auto point = points.get_vertices()[i];
-                         if (point.z) {
-                           Eigen::Vector3f transformed_point =
-                               rover_pose.orientation *
-                                   Eigen::Vector3f(point.x, point.y, point.z) +
-                               rover_pose.position;
-                           point_vectors.push_back(transformed_point);
-                         }
-                       }
-
-                       // Convert to PCL and filter
-                       auto pcl_cloud = convert_to_pcl(point_vectors);
-                       pcl::PointCloud<pcl::PointXYZ>::Ptr passthrough_cloud(
-                           new pcl::PointCloud<pcl::PointXYZ>());
-                       pcl::PassThrough<pcl::PointXYZ> passthrough;
-                       passthrough.setInputCloud(pcl_cloud);
-                       passthrough.setFilterFieldName("z");
-                       passthrough.setFilterLimits(0.5, 5.0);
-                       passthrough.filter(*passthrough_cloud);
-
-                       pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud(
-                           new pcl::PointCloud<pcl::PointXYZ>());
-                       pcl::VoxelGrid<pcl::PointXYZ> voxel;
-                       voxel.setInputCloud(passthrough_cloud);
-                       voxel.setLeafSize(0.05f, 0.05f, 0.05f);
-                       voxel.filter(*filtered_cloud);
-
-                       point_vectors.clear();
-                       for (const auto &point : filtered_cloud->points) {
-                         point_vectors.emplace_back(point.x, point.y, point.z);
-                       }
-
-                       create_gridmap(gridmap, point_vectors, rover_pose,
-                                      grid_resolution, height, prox_factor);
-
-                       counter = gridmap.occupancy_grid.size() - adder;
-
-                       if (counter >= limit) {
-			 return 1; 
-                         adder = 20;
-                       } else return 0; 
-                     })
-                     .name("mapping");
+  auto mapping =
+      taskflow
+          .emplace([&]() {
+          })
+          .name("mapping");
 
   auto path_planning = taskflow.emplace([&](){
 
