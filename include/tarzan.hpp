@@ -53,12 +53,10 @@ private:
 
 public:
   serial_port serial; // serial port
+  std::string port; 
+  unsigned int baudrate;
 
-  enum Error : uint8_t {
-	  WriteSuccess = 0, 
-	  CobsEncodeError,
-	  AsioWriteError
-  };
+  enum Error : uint8_t { WriteSuccess = 0, CobsEncodeError, AsioWriteError };
 
   // msg to write
   struct tarzan_msg {
@@ -69,9 +67,8 @@ public:
     uint32_t crc;
   };
 
-  Tarzan(io_context &io, const std::string port, unsigned int baud_rate)
-      : serial(io, port) {
-    serial.set_option(serial_port_base::baud_rate(baud_rate));
+  Tarzan(io_context &io, const std::string port, unsigned int baudrate)
+      : serial(io, port), port(port), baudrate(baudrate) {
   }
 
   void asyncWriteHandler(const boost::system::error_code &error,
@@ -81,11 +78,15 @@ public:
 
   Error write_msg(const tarzan_msg &msg);
 
+  void close();
+
+  int open();
+
   uint32_t crc32_ieee(const uint8_t *data, size_t len);
 
   uint32_t crc32_ieee_update(uint32_t crc, const uint8_t *data, size_t len);
 
-  const char* get_error(enum Error err);
+  const char *get_error(enum Error err);
 };
 
 #endif

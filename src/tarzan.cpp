@@ -61,6 +61,28 @@ Tarzan::Error Tarzan::write_msg(const Tarzan::tarzan_msg &msg) {
   return Tarzan::asyncWrite(buffer);
 }
 
+void Tarzan::close() {
+  if (!Tarzan::serial.is_open())
+    return;
+  Tarzan::serial.cancel(); // cancel all pending async processes
+  Tarzan::serial.close();  // close the serial port
+}
+
+int Tarzan::open() {
+
+  // close if port was already opened
+  if (serial.is_open())
+    close();
+
+  try {
+    serial.open(Tarzan::port);
+    serial.set_option(serial_port_base::baud_rate(Tarzan::baudrate));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
 uint32_t Tarzan::crc32_ieee(const uint8_t *data, size_t len) {
   return crc32_ieee_update(0x0, data, len);
 }
@@ -99,6 +121,7 @@ const char *get_error(enum Tarzan::Error err) {
     return "Asio Serial Write Error";
     break;
   };
+  return "Undefined Error";
 }
 
 #ifdef TARZAN_TEST_CPP
