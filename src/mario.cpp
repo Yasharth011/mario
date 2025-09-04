@@ -127,12 +127,13 @@ int main(int argc, char *argv[]) {
   tf::Taskflow taskflow; // & taskflow graph obj
 
   /* relasense vars*/
-  rs2::pipeline pipe;     // creating rs
-  rs2::config cfg;        // pipeline & cfg obj
-  rs2::frameset frameset; // rs frames obj
-  rs2::pointcloud pc;     // rs pointcloud
-  rs2::points points;     // rs point obj
-			  
+  // rs2::pipeline pipe;     // creating rs
+  // rs2::config cfg;        // pipeline & cfg obj
+  // rs2::frameset frameset; // rs frames obj
+  // rs2::pointcloud pc;     // rs pointcloud
+  // rs2::points points;     // rs point obj
+// check struct in mario.hpp 
+
   /* rerun vars */
   const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
 

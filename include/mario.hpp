@@ -1,3 +1,5 @@
+#include "alloc.hpp"
+#include "localize.hpp"
 // # ifndef MARIO_HPP
 // # define MARIO_HPP
 //
@@ -47,4 +49,12 @@
 // // 		std::condition_variable c; 
 // // 		bool finished = false; 
 // // };
-//
+struct RealsenseHandle {
+  rs2::frame_queue frame_q;
+  rs2::pointcloud pc;
+  rs2::pipeline pipe;
+  rs2::align align;
+  rs2::config cfg;
+  stella_vslam::system slam;
+  stella_vslam::config slam_cfg;
+};

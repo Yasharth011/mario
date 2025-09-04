@@ -49,6 +49,7 @@ struct RealsenseHandle {
   rs2::pointcloud pc;
   rs2::pipeline pipe;
   rs2::align align;
+  rs2::config cfg;
   stella_vslam::system slam;
   stella_vslam::config slam_cfg;
 };
