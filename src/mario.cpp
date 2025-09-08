@@ -299,9 +299,42 @@ struct RealsenseHandle {
   auto slam =
       taskflow
           .emplace([&]() {
-          })
-          .name("slam");
+            if (auto res = percep::runLocalization(rs_ptr, &rec);
+                std::get_if<percep::Error>(&res)) {
+              printf("getFrames error: %s\n", percep::getError(std::get<0>(res)));
+                  })
+                  .name("slam");
 
+
+  // init slam
+  auto init_slam = 
+    taskflow
+        .emplace([&](){
+            // struct to store the resolution of the video
+            struct percep::Config config {
+            .height = 640, 
+            .width = 480, 
+            .fps =30, 
+            .enable_imu = true
+            };
+
+            // alloc memory
+            mem::GeneralPurposeAllocator gpa;
+
+
+            if (not rs_handle) {
+              printf("Could not setup Realsense\n");
+
+            struct percep::RealsenseHandle* rs_ptr = percep::setupRealsense(gpa, config);
+
+            printf("%" PRIu64 " is the size of RealsenseHandle. Alignment: %" PRIu64 "\n",
+                  percep::REALSENSE_HANDLE_SIZE, alignof(percep::RealsenseHandle));
+            if (not rs_ptr) {
+              printf("setupRealsense error\n");
+              return 1;
+
+  }
+            }
   // mapping task
   auto mapping =
       taskflow
