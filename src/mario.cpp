@@ -40,6 +40,24 @@
 
 #include <mario.hpp>
 
+#include <librealsense2/h/rs_types.h>
+#include <librealsense2/rs.hpp>
+#include <librealsense2/hpp/rs_frame.hpp>
+#include <librealsense2/hpp/rs_processing.hpp>
+#include <librealsense2/h/rs_sensor.h>
+#include <librealsense2/hpp/rs_pipeline.hpp>
+#include <librealsense2/rsutil.h>
+
+#include "alloc.hpp"
+#include "cppturbo.hpp"
+#include "collection_adapters.hpp"
+#include "localize.hpp"
+
+#include <stella_vslam/data/landmark.h>
+#include <stella_vslam/system.h>
+#include <stella_vslam/config.h>
+#include <stella_vslam/publish/frame_publisher.h>
+#include <stella_vslam/publish/map_publisher.h>
 namespace po = boost::program_options;
 
 class Navigate : public yasmin::State {
