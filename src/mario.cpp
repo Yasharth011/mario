@@ -199,21 +199,21 @@ struct RealsenseHandle {
 
   /* CONFIGURING REALSENSE */
 
-  // Enable Realsense Streams
-  cfg.enable_stream(RS2_STREAM_DEPTH);
-  cfg.enable_stream(RS2_STREAM_GYRO);
-  cfg.enable_stream(RS2_STREAM_ACCEL);
-  cfg.enable_stream(RS2_STREAM_COLOR);
-  cfg.enable_stream(RS2_STREAM_INFRARED, 2);
+  // // Enable Realsense Stream
+  // cfg.enable_stream(RS2_STREAM_DEPTH);
+  // cfg.enable_stream(RS2_STREAM_GYRO);
+  // cfg.enable_stream(RS2_STREAM_ACCEL);
+  // cfg.enable_stream(RS2_STREAM_COLOR);
+  // cfg.enable_stream(RS2_STREAM_INFRARED, 2);
 
   // Starting realsense pipeline
-  try {
-    pipe.start(cfg);
-    YASMIN_LOG_INFO("Succesful connection to RealSense");
-  } catch (const std::exception &e) {
-    YASMIN_LOG_ERROR("RealSense : %s", e.what());
-    return -1;
-  }
+  // try {
+  //   pipe.start(cfg);
+  //   YASMIN_LOG_INFO("Succesful connection to RealSense");
+  // } catch (const std::exception &e) {
+  //   YASMIN_LOG_ERROR("RealSense : %s", e.what());
+  //   return -1;
+  // }
 
   /* CONFIGURING NUCLEO COM */
 
