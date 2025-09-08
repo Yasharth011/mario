@@ -23,9 +23,32 @@ find_package(stella_vslam REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
+# tarzan
 add_library(tarzan src/tarzan.cpp )
 target_include_directories(tarzan PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
 target_link_libraries(tarzan ${Cobs_LDFLAGS})
+
+# alloc
+add_library(alloc bin/alloc.cpp)
+target_include_directories(alloc PUBLIC include)
+
+# localize (slam)
+add_library(localize bin/localize.cpp)
+target_include_directories(
+  localize
+  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS}
+         ${GLEW_INCLUDE_DIRS} ${realsense2_INCLUDE_DIRS}
+         ${Pangolin_INCLUDE_DIRS})
+target_link_libraries(
+  localize
+  rerun_sdk
+  Eigen3::Eigen
+  stella_vslam::stella_vslam
+  ${realsense2_LIBRARY}
+  ${GLEW_LIBRARIES}
+  ${Pangolin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  Eigen3::Eigen)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TEST)
