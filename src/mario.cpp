@@ -144,12 +144,15 @@ int main(int argc, char *argv[]) {
   tf::Executor executor; // creating exectutor
   tf::Taskflow taskflow; // & taskflow graph obj
 
-  /* relasense vars*/
-  // rs2::pipeline pipe;     // creating rs
-  // rs2::config cfg;        // pipeline & cfg obj
-  // rs2::frameset frameset; // rs frames obj
-  // rs2::pointcloud pc;     // rs pointcloud
-  // rs2::points points;     // rs point obj
+struct RealsenseHandle {
+  rs2::frame_queue frame_q;
+  rs2::pointcloud pc;
+  rs2::pipeline pipe;
+  rs2::align align;
+  rs2::config cfg;
+  stella_vslam::system slam;
+  stella_vslam::config slam_cfg;
+};
 // check struct in mario.hpp 
 
   /* rerun vars */
