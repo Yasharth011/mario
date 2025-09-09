@@ -13,6 +13,12 @@ namespace slam {
 struct slamHandle {
   stella_vslam::system slam;
   stella_vslam::config slam_cfg;
+  slamHandle()
+      : slam_cfg("stellaconf.yaml"),
+        slam(std::shared_ptr<stella_vslam::config>(&slam_cfg, [](auto p) {}), 
+             "stellavocab.txt") {
+    slam.startup();
+  }
 };
 
 // new (&handle->slam_cfg) stella_vslam::config("stellaconf.yaml");
@@ -41,9 +47,8 @@ auto getFrames(mario::rsHandle *handle)
 
 void resetLocalization(slamHandle *handle);
 
-bool percep::localizationLoopAdjustmentRunning(slamHandle *handle);
+bool localizationLoopAdjustmentRunning(slamHandle *handle);
 
 auto runLocalization(rs::frame frame, slamHandle *handle, const void *rec);
 } // namespace slam
-
 #endif

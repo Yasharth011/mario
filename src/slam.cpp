@@ -48,7 +48,7 @@ Eigen::Vector3d getPointFromPixel(float x, float y, double depth) {
   return point;
 }
 
-auto getColorDepthPair(mario::rsHandle *handle, rs2::frameset &fs) {
+auto getColorDepthPair(mario::rs_handler *handle, rs2::frameset &fs) {
   auto aligned_frames = handle->align.process(fs);
 
   rs2::video_frame color_frame = aligned_frame.first(RS2_STREAM_COLOR);
@@ -64,7 +64,7 @@ auto getColorDepthPair(mario::rsHandle *handle, rs2::frameset &fs) {
   return std::make_pair(color_cv, depth_cv);
 }
 
-auto getPoints(mario::rsHandle *handle) -> std::variant<Error, rs2::points> {
+auto getPoints(mario::rs_handler *handle) -> std::variant<Error, rs2::points> {
   if (not handle)
     return Error::InvalidHandle;
 
@@ -80,7 +80,7 @@ auto getPoints(mario::rsHandle *handle) -> std::variant<Error, rs2::points> {
   return result;
 }
 
-auto getFrames(mario::rsHandle *handle)
+auto getFrames(mario::rs_handler *handle)
     -> std::variant<Error, std::pair<cv::Mat, cv::Mat>> {
   if (not handle)
     return Error::InvalidHandle;
@@ -137,3 +137,25 @@ auto runLocalization(rs2::frame frame, slamHandle *handle, const void *rec)
 }
 }
 }
+
+#ifdef SLAM_TEST_CPP
+#include <iostream>
+#include <utils.hpp>
+
+int main() {
+
+  struct utils::rs_config realsense_config{
+      .height = 640, .width = 480, .fps = 30, .enable_imu = false};
+
+  struct utils::rs_handler *rs_ptr = utils::setupRealsense(realsense_config);
+
+  while (true) {
+    rs::frame frame = rs_ptr->rs2::frame_queue.wait_for_frame();
+    if (auto res = slam::runLocalization(frame, &rec);
+        std::get_if<slam::Error>(&res)) {
+      std::cout << "getFrames error: " << percep::getError(std::get<0>(res))
+                << std::endl;
+    }
+  }
+}
+#endif
