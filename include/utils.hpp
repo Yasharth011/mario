@@ -1,7 +1,11 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
+#include <librealsense2/h/rs_types.h>
 #include <librealsense2/rs.hpp>
+#include <opencv2/opencv.hpp>
+
+#include <utility>
 
 namespace utils {
 
@@ -22,7 +26,15 @@ struct rs_config {
   bool enable_imu = false;
 };
 
-struct rs_handler *setupRealsense(struct Config &config);
-} // namespace utils
+enum Error : uint8_t {
+  NoError = 0,
+  NoDeviceConnected,
+  InvalidHandle,
+  NoFrameset,
+};
 
+struct rs_handler *setupRealsense(struct rs_config config);
+
+Error destroyHandle(struct utils::rs_handler* handle);
+} // namespace utils
 #endif
