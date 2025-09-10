@@ -23,43 +23,45 @@ find_package(stella_vslam REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
+# utils
+add_library(utils src/utils.cpp)
+target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS})
+
 # tarzan
-add_library(tarzan src/tarzan.cpp )
+add_library(tarzan src/tarzan.cpp)
 target_include_directories(tarzan PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
-target_link_libraries(tarzan ${Cobs_LDFLAGS})
+target_link_libraries(tarzan PUBLIC ${Cobs_LDFLAGS} utils)
 
-# alloc
-add_library(alloc bin/alloc.cpp)
-target_include_directories(alloc PUBLIC include)
-
-# localize (slam)
-add_library(localize bin/localize.cpp)
+# slam
+add_library(slam src/slam.cpp)
 target_include_directories(
-  localize
-  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS}
-         ${GLEW_INCLUDE_DIRS} ${realsense2_INCLUDE_DIRS}
-         ${Pangolin_INCLUDE_DIRS})
-target_link_libraries(
-  localize
+  slam
+  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${Pangolin_INCLUDE_DIRS})
+target_link_libraries(slam
+  PUBLIC
+  utils
   rerun_sdk
   Eigen3::Eigen
   stella_vslam::stella_vslam
-  ${realsense2_LIBRARY}
-  ${GLEW_LIBRARIES}
-  ${Pangolin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  Eigen3::Eigen)
+  ${Pangolin_LIBRARIES})
 
 option(BUILD_TESTS "Build Test Scipts" ON)
-if(BUILD_TEST)
+if(BUILD_TESTS)
 	# tarzan test 
 	add_executable(tarzan_test src/tarzan.cpp)
 	target_compile_definitions(tarzan_test PRIVATE TARZAN_TEST_CPP=1)
 	target_link_libraries(tarzan_test PRIVATE tarzan)
+	
+	# slam test 
+	add_executable(slam_test src/slam.cpp)
+	target_compile_definitions(slam_test PRIVATE SLAM_TEST_CPP=1)
+	target_include_directories(slam_test PRIVATE slam utils)
+	target_link_libraries(slam_test PRIVATE slam utils)
 endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
 target_include_directories(mario PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} ${rerun_sdk_INCLUDE_DIRS})
 
-target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 Boost::program_options tarzan motionplanner rerun_sdk stella_vslam)
+target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 Boost::program_options tarzan motionplanner rerun_sdk slam)
