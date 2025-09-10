@@ -36,5 +36,7 @@ enum Error : uint8_t {
 struct rs_handler *setupRealsense(struct rs_config config);
 
 Error destroyHandle(struct utils::rs_handler* handle);
+
+const char *get_error(enum Error err);
 } // namespace utils
 #endif

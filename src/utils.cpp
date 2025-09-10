@@ -87,4 +87,22 @@ Error destroyHandle(struct rs_handler *handle) {
 
   return Error::NoError;
 }
+
+const char *get_error(enum Error err) {
+  switch (err) {
+  case Error::NoError:
+    return "No Error";
+    break;
+  case Error::NoDeviceConnected:
+    return "No Device Connected";
+    break;
+  case Error::InvalidHandle:
+    return "Realsense Handler Invalid";
+    break;
+  case Error::NoFrameset:
+    return "No Frameset";
+  };
+  return "Undefined Error";
+}
+
 } // namespace utils
