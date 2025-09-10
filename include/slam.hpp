@@ -3,6 +3,7 @@
 
 #include <Eigen/Dense>
 #include <librealsense2/rs.hpp>
+// #include <shared_mutex>
 #include <stella_vslam/config.h>
 #include <stella_vslam/system.h>
 #include <variant>
@@ -16,12 +17,12 @@ namespace slam {
 
 // init this struct in main
 struct slamHandle {
+  std::shared_ptr<stella_vslam::config> slam_cfg;
   stella_vslam::system slam;
-  stella_vslam::config slam_cfg;
+
   slamHandle()
-      : slam_cfg("stellaconf.yaml"),
-        slam(std::shared_ptr<stella_vslam::config>(&slam_cfg, [](auto p) {}), 
-             "stellavocab.txt") {
+      : slam_cfg(std::make_shared<stella_vslam::config>("stellaconf.yaml")),
+        slam(slam_cfg, "orb_vocab.fbow") {
     slam.startup();
   }
 };
@@ -42,6 +43,6 @@ void resetLocalization(slamHandle *handle);
 
 bool localizationLoopAdjustmentRunning(slamHandle *handle);
 
-auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)-> std::variant<utils::Error, Eigen::Matrix<double, 4, 4>> ;
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)-> Eigen::Matrix<double, 4, 4> ;
 } // namespace slam
 #endif

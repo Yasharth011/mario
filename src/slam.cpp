@@ -69,9 +69,9 @@ struct RGBDFrame *getColorDepthPair(utils::rs_handler *handle,
 
 auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle,
                      const void *rec)
-    -> std::variant<utils::Error, Eigen::Matrix<double, 4, 4>> {
+    -> Eigen::Matrix<double, 4, 4> {
 
-  std::variant<utils::Error, Eigen::Matrix<double, 4, 4>> result;
+  Eigen::Matrix<double, 4, 4> result;
 
   while (handle->slam.loop_BA_is_running() or
          (!handle->slam.mapping_module_is_enabled())) {
@@ -92,17 +92,19 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle,
     auto translations = inverse_pose.col(3);
     auto rotations = inverse_pose.block<3, 3>(0, 0);
   }
-  result.emplace<1>(inverse_pose);
+  result = inverse_pose;
 
   return result;
 }
 } // namespace slam
+
 #ifdef SLAM_TEST_CPP
 #include <iostream>
 #include <rerun.hpp>
+#include <spdlog/spdlog.h>
 
 int main() {
-
+  spdlog::set_level(spdlog::level::debug);
   struct utils::rs_config realsense_config{.height = 640,
                                            .width = 480,
                                            .fov = {0, 0},
@@ -114,19 +116,27 @@ int main() {
 
   struct utils::rs_handler *rs_ptr = utils::setupRealsense(realsense_config);
 
-  struct slamHandle *slam_handler = new slam::slamHandle();
+  struct slam::slamHandle *slam_handler = new slam::slamHandle();
+
+  const Eigen::Matrix<double, 4, 4> camera_to_ned_transform{
+      {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
+
+  Eigen::Matrix<double, 4, 4> current_pose;
+
+  Eigen::Matrix<double, 4, 4> res;
 
   while (true) {
     rs2::frame frame = rs_ptr->frame_q.wait_for_frame();
 
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
-      struct RGBDFrame *frame_cv = slam::getColorDepthPair(rs_ptr, fs);
+      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(rs_ptr, fs);
 
-      if (auto res = runLocalization(frame_cv, slam_handler, &rec);
-          std::get_if<utils::Error>(&res)) {
-        std::cout << "getFrames error: " << utils::Error(std::get<0>(res))
-                  << std::endl;
-      }
+      res = slam::runLocalization(frame_cv, slam_handler, &rec);
+      current_pose = camera_to_ned_transform * res;
+      auto translations = current_pose.col(3);
+      auto rotations = current_pose.block<3, 3>(0, 0);
+      spdlog::info("{} {} {}", translations.x(), translations.y(),
+                   translations.z());
     }
   }
 }
