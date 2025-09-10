@@ -1,14 +1,19 @@
 #ifndef SLAM_HPP
 #define SLAM_HPP
+
 #include <Eigen/Dense>
 #include <librealsense2/rs.hpp>
 #include <stella_vslam/config.h>
 #include <stella_vslam/system.h>
+#include <variant>
+#include <opencv2/highgui.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/videoio.hpp>
 
-#include "localize.hpp"
-#include "mario.hpp"
+#include "utils.hpp"
 
 namespace slam {
+
 // init this struct in main
 struct slamHandle {
   stella_vslam::system slam;
@@ -21,34 +26,22 @@ struct slamHandle {
   }
 };
 
-// new (&handle->slam_cfg) stella_vslam::config("stellaconf.yaml");
-// new (&handle->slam) stella_vslam::system(
-//   std::shared_ptr<stella_vslam::config>(&handle->slam_cfg, [](auto p) {}),
-//   "stellavocab.txt");
-enum Error : uint8_t {
-  NoError = 0,
-  NoDeviceConnected,
-  InvalidHandle,
-  NoFrameset,
+struct RGBDFrame{
+	cv::Mat color_cv;
+	cv::Mat depth_cv;
+	double timestamp_cv;
 };
 
 double yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
 
 std::string getStatus(slamHandle *handle);
 
-Eigen::Vector3d getPointFromPixel(float x, float y, double depth);
-
-auto getColorDepthPair(mario::rsHandle *handle);
-
-auto getPoints(mario::rsHandle *handle) -> std::variant<Error, rs2::points>;
-
-auto getFrames(mario::rsHandle *handle)
-    -> std::variant<Error, std::pair<cv::Mat, cv::Mat>>;
+struct RGBDFrame *getColorDepthPair(utils::rs_handler *handle, rs2::frameset &fs);
 
 void resetLocalization(slamHandle *handle);
 
 bool localizationLoopAdjustmentRunning(slamHandle *handle);
 
-auto runLocalization(rs::frame frame, slamHandle *handle, const void *rec);
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)-> std::variant<utils::Error, Eigen::Matrix<double, 4, 4>> ;
 } // namespace slam
 #endif
