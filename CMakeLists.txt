@@ -19,6 +19,7 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(motionplanner REQUIRED)
 find_package(rerun_sdk REQUIRED)
+find_package(GLEW REQUIRED)
 find_package(stella_vslam REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
@@ -31,20 +32,21 @@ target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS})
 # tarzan
 add_library(tarzan src/tarzan.cpp)
 target_include_directories(tarzan PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
-target_link_libraries(tarzan PUBLIC ${Cobs_LDFLAGS} utils)
+target_link_libraries(tarzan PUBLIC ${Cobs_LDFLAGS})
 
 # slam
 add_library(slam src/slam.cpp)
 target_include_directories(
   slam
-  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${Pangolin_INCLUDE_DIRS})
+  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS} ${Pangolin_INCLUDE_DIRS})
 target_link_libraries(slam
   PUBLIC
   utils
   rerun_sdk
   Eigen3::Eigen
   stella_vslam::stella_vslam
-  ${Pangolin_LIBRARIES})
+  ${GLEW_LIBS}
+  ${Pangolin_LIBS})
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)
@@ -56,12 +58,12 @@ if(BUILD_TESTS)
 	# slam test 
 	add_executable(slam_test src/slam.cpp)
 	target_compile_definitions(slam_test PRIVATE SLAM_TEST_CPP=1)
-	target_include_directories(slam_test PRIVATE slam utils)
-	target_link_libraries(slam_test PRIVATE slam utils)
+	target_include_directories(slam_test PRIVATE slam)
+	target_link_libraries(slam_test PRIVATE slam)
 endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS} ${rerun_sdk_INCLUDE_DIRS})
+target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
 
-target_link_libraries(mario PRIVATE ${OpenCV_LIBS} onnxruntime Eigen3::Eigen ${PCL_LIBRARIES} yasmin realsense2 Boost::program_options tarzan motionplanner rerun_sdk slam)
+target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)
