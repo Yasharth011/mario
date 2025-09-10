@@ -8,9 +8,10 @@
 
 #include "utils.hpp"
 
-struct utils::rs_handler *setupRealsense(struct rs_config &config) {
+namespace utils {
+struct rs_handler *setupRealsense(struct rs_config config) {
 
-  struct utils::rs_handler *handle = new utils::rs_handler();
+  struct rs_handler *handle = new utils::rs_handler();
 
   rs2::config stream_config;
   rs2::context ctx;
@@ -33,6 +34,7 @@ struct utils::rs_handler *setupRealsense(struct rs_config &config) {
     stream_config.enable_stream(rs2_stream::RS2_STREAM_GYRO,
                                 RS2_FORMAT_MOTION_XYZ32F);
   }
+
   rs2::pipeline_profile selection =
       handle->pipe.start(stream_config, handle->frame_q);
 
@@ -46,12 +48,13 @@ struct utils::rs_handler *setupRealsense(struct rs_config &config) {
   auto depth_stream = selection.get_stream(rs2_stream::RS2_STREAM_DEPTH)
                           .as<rs2::video_stream_profile>();
 
-  auto i = depth_stream.get_intrinsics();
-  intrinsics = (rs2_intrinsics *)alloc.alloc(sizeof(i));
-  *intrinsics = i;
-  rs2_fov(&i, fov);
-  config.fov[0] = (fov[0] * M_PI) / 180.0f;
-  config.fov[1] = (fov[1] * M_PI) / 180.0f;
+  // auto i = depth_stream.get_intrinsics();
+  // intrinsics = new rs2_intrinsics(i);
+  //
+  // rs2_fov(&i, fov);
+  //
+  // config.fov[0] = (fov[0] * M_PI) / 180.0f;
+  // config.fov[1] = (fov[1] * M_PI) / 180.0f;
 
   int index = 0;
   for (rs2::sensor sensor : selection.get_device().query_sensors()) {
@@ -71,3 +74,17 @@ struct utils::rs_handler *setupRealsense(struct rs_config &config) {
 
   return handle;
 }
+
+Error destroyHandle(struct rs_handler *handle) {
+
+  if (not handle)
+    return Error::InvalidHandle;
+
+  delete handle;
+  // handle->pipe.~pipeline();
+  // handle->frame_q.~frame_queue();
+  // handle->pc.~pointcloud();
+
+  return Error::NoError;
+}
+} // namespace utils
