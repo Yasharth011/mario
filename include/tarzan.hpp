@@ -50,9 +50,9 @@ namespace tarzan {
   // msg to write
   struct tarzan_msg {
     struct DiffDriveTwist cmd;
-    // struct inverse_msg inv;
-    // struct imu_msg imu;
-    // enum msg_type type;
+    struct inverse_msg inv;
+    struct imu_msg imu;
+    enum msg_type type;
     uint32_t crc;
   };
 
