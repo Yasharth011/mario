@@ -21,13 +21,14 @@ find_package(motionplanner REQUIRED)
 find_package(rerun_sdk REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(stella_vslam REQUIRED)
+find_package(cppzmq 4.11.0 REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
 # utils
 add_library(utils src/utils.cpp)
 target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS})
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq)
 
 # tarzan
 add_library(tarzan src/tarzan.cpp)
@@ -60,10 +61,16 @@ if(BUILD_TESTS)
 	target_compile_definitions(slam_test PRIVATE SLAM_TEST_CPP=1)
 	target_include_directories(slam_test PRIVATE slam)
 	target_link_libraries(slam_test PRIVATE slam)
+
+	# utils test 
+	add_executable(utils_test src/utils.cpp)
+	target_compile_definitions(utils_test PRIVATE UTILS_TEST_CPP=1)
+	target_include_directories(utils_test PRIVATE utils)
+	target_link_libraries(utils_test PRIVATE utils)
 endif()
 
-add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
-
-target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
-
-target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)
+# add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
+#
+# target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
+#
+# target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)
