@@ -5,7 +5,7 @@
 #include <librealsense2/hpp/rs_processing.hpp>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
-#include <zmq.hpp> 
+#include <zmq.hpp>
 #include <zmq_addon.hpp>
 
 #include "utils.hpp"
@@ -76,7 +76,7 @@ struct rs_handler *setupRealsense(struct rs_config config) {
 
   return handle;
 }
-	
+
 Error destroyHandle(struct rs_handler *handle) {
 
   if (not handle)
@@ -107,14 +107,14 @@ const char *get_error(enum Error err) {
   return "Undefined Error";
 }
 
-template <typename msg_type>
+template <typename msg_type = std::vector<char>>
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
-                msg_type &encrypt_msg) {
+                msg_type &encoded_msg) {
 
-  zmq::message_t msg(encrypt_msg.size());
+  zmq::message_t msg(encoded_msg.size());
   zmq::message_t topic(topic_name.size());
 
-  memcpy(msg.data(), encrypt_msg.data(), encrypt_msg.size());
+  memcpy(msg.data(), encoded_msg.data(), encoded_msg.size());
   memcpy(topic.data(), topic_name.data(), topic_name.size());
 
   try {
@@ -154,7 +154,7 @@ int main() {
         std::cout << "error publishing" << std::endl;
 
       if (!utils::publish_msg<std::string>(pub, topic2, msg2))
-      std::cout << "error publishing" << std::endl;
+        std::cout << "error publishing" << std::endl;
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   };
@@ -179,7 +179,7 @@ int main() {
       std::cout << "[" << msg_recv[0].to_string() << "]"
                 << msg_recv[1].to_string() << std::endl;
       std::this_thread::sleep_for(std::chrono::milliseconds(200));
-   }
+    }
   };
 
   auto sub_thread2 = [&sub2]() {
