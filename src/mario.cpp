@@ -1,5 +1,3 @@
-#include <rerun/recording_stream.hpp>
-
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 
@@ -13,6 +11,8 @@
 #include <yasmin/state_machine.hpp>
 
 #include <taskflow/taskflow.hpp>
+
+#include <zmq.hpp> 
 
 #include <rerun.hpp>
 
@@ -72,11 +72,17 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  /* taskflow vars*/
+  /* taskflow vars */
   tf::Executor executor; // creating exectutor
   tf::Taskflow taskflow; // & taskflow graph obj
 
-  /* Yasmin vars*/
+  /* zmq vars */ 
+  zmq::context_t ctx(1);
+  zmq::socket_t pub(ctx, ZMQ_PUB);
+  zmq::socket_t slam_sub(ctx, ZMQ_SUB);
+  zmq::socket_t mapping_sub(ctx, ZMQ_SUB);
+
+  /* Yasmin vars */
   auto sm = std::make_shared<yasmin::StateMachine>(
       std::initializer_list<std::string>{"IDLE"}); // state machine obj
   auto blackboard =
@@ -134,20 +140,50 @@ int main(int argc, char *argv[]) {
 
   // Add states to the state machine
   sm->add_state("Navigate", std::make_shared<Navigate>(nucleo),
-                {"IDLE", "Idle"});
+                {{"IDLE", "Idle"}});
 
   sm->add_state("Idle", std::make_shared<Idle>(nucleo),
-                {"NAVIGATE", "Navigate"});
+                {{"NAVIGATE", "Navigate"}});
 
   // set start of FSM as IDLE STATE
   sm->set_start_state("Idle");
+
+  /* CONFIGURING ZMQ SOCKETS */
+
+  // binding publisher
+  try {
+    pub.bind("inproc://realsense");
+  } catch (zmq::error_t &e) {
+    // e.what();
+  }
+
+  // connecting subscriber
+  try {
+    slam_sub.connect("inproc://realsense");
+  } catch (zmq::error_t &e) {
+    // e.what();
+  }
+
+  try {
+    mapping_sub.connect("inproc://realsense");
+  } catch (zmq::error_t &e) {
+    // e.what();
+  }
 
   /* TASK FLOW GRAPH */
 
   // capture task
   auto capture_frame = taskflow
                            .emplace([&]() {
+
                              // fetch frames from realsense
+                             frame = rs_ptr->frame_q.wait_for_frame();
+
+                             if (rs2::frameset fs = frame.as<rs2::frameset>()) {
+                               struct slam::RGBDFrame *frame_cv =
+                                   slam::getColorDepthPair(rs_ptr, fs);
+                             }
+
                            })
                            .name("capture_frame");
 
