@@ -4,7 +4,7 @@
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
-
+#include <zmq.hpp>
 #include <utility>
 
 namespace utils {
@@ -38,5 +38,8 @@ struct rs_handler *setupRealsense(struct rs_config config);
 Error destroyHandle(struct utils::rs_handler* handle);
 
 const char *get_error(enum Error err);
+
+template <typename msg_type>
+int publish_msg(zmq::socket_t &pub, const std::string &topic_name, msg_type &msg);
 } // namespace utils
 #endif

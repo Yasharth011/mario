@@ -5,6 +5,8 @@
 #include <librealsense2/hpp/rs_processing.hpp>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
+#include <zmq.hpp> 
+#include <zmq_addon.hpp>
 
 #include "utils.hpp"
 
@@ -74,7 +76,7 @@ struct rs_handler *setupRealsense(struct rs_config config) {
 
   return handle;
 }
-
+	
 Error destroyHandle(struct rs_handler *handle) {
 
   if (not handle)
@@ -105,4 +107,113 @@ const char *get_error(enum Error err) {
   return "Undefined Error";
 }
 
+template <typename msg_type>
+int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
+                msg_type &encrypt_msg) {
+
+  zmq::message_t msg(encrypt_msg.size());
+  zmq::message_t topic(topic_name.size());
+
+  memcpy(msg.data(), encrypt_msg.data(), encrypt_msg.size());
+  memcpy(topic.data(), topic_name.data(), topic_name.size());
+
+  try {
+    pub.send(topic, zmq::send_flags::sndmore);
+    pub.send(msg, zmq::send_flags::none);
+  } catch (zmq::error_t &e) {
+    return 0;
+  }
+  return 1;
+}
 } // namespace utils
+
+#ifdef UTILS_TEST_CPP
+#include <iostream>
+#include <thread>
+
+int main() {
+
+  zmq::context_t ctx(1);
+  zmq::socket_t pub(ctx, zmq::socket_type::pub);
+  zmq::socket_t sub1(ctx, zmq::socket_type::sub);
+  zmq::socket_t sub2(ctx, zmq::socket_type::sub);
+
+  auto pub_thread = [&pub]() {
+    try {
+      pub.bind("inproc://realsense");
+    } catch (zmq::error_t &e) {
+      std::cout << e.what() << std::endl;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    std::string topic1 = "topic1";
+    std::string msg1 = "1234";
+    std::string topic2 = "topic2";
+    std::string msg2 = "5678";
+    while (true) {
+      if (!utils::publish_msg<std::string>(pub, topic1, msg1))
+        std::cout << "error publishing" << std::endl;
+
+      if (!utils::publish_msg<std::string>(pub, topic2, msg2))
+      std::cout << "error publishing" << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  };
+
+  auto sub_thread1 = [&sub1]() {
+    // connecting subscriber
+    try {
+      sub1.connect("inproc://realsense");
+    } catch (zmq::error_t &e) {
+      std::cout << e.what() << std::endl;
+    }
+
+    sub1.set(zmq::sockopt::subscribe, "topic1");
+
+    std::vector<zmq::message_t> msg_recv;
+    while (true) {
+      zmq::recv_result_t result1 =
+          zmq::recv_multipart(sub1, std::back_inserter(msg_recv));
+      assert(result1 && "recv failed");
+      assert(*result1 == 2);
+
+      std::cout << "[" << msg_recv[0].to_string() << "]"
+                << msg_recv[1].to_string() << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+   }
+  };
+
+  auto sub_thread2 = [&sub2]() {
+    // connecting subscriber
+    try {
+      sub2.connect("inproc://realsense");
+    } catch (zmq::error_t &e) {
+      std::cout << e.what() << std::endl;
+    }
+
+    sub2.set(zmq::sockopt::subscribe, "topic2");
+
+    std::vector<zmq::message_t> msg_recv;
+    while (true) {
+      zmq::recv_result_t result2 =
+          zmq::recv_multipart(sub2, std::back_inserter(msg_recv));
+      assert(result2 && "recv failed");
+      assert(*result2 == 2);
+
+      std::cout << "[" << msg_recv[0].to_string() << "]"
+                << msg_recv[1].to_string() << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
+  };
+
+  std::thread p(pub_thread);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::thread s1(sub_thread1);
+  std::thread s2(sub_thread2);
+
+  p.join();
+  s1.join();
+  s2.join();
+
+  return 0;
+}
+#endif
