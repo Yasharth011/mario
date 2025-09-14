@@ -69,8 +69,8 @@ if(BUILD_TESTS)
 	target_link_libraries(utils_test PRIVATE utils)
 endif()
 
-# add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
-#
-# target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
-#
-# target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)
+add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
+
+target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
+
+target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)

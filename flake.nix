@@ -116,53 +116,53 @@
               [ yaml-cpp sqlite.dev g2o.dev packages.opencv glew ];
           };
 
-	  packages.libzmq = with pkgs; 
-	  stdenv.mkDerivation {
-	  	name = "libzmq";
-		src = fetchFromGitHub {
-			owner = "zeromq";
-			repo = "libzmq"; 
-			rev = "622fc6dde99ee172ebaa9c8628d85a7a1995a21d"; #v4.3.5
-			sha256 = "sha256-q2h5y0Asad+fGB9haO4Vg7a1ffO2JSb7czzlhmT3VmI=";
-		};
-		nativeBuildInputs = [ cmake catch2 ];
-		configurePhase = ''
-			mkdir build && cd build 
-			cmake .. -DCMAKE_INSTALL_PREFIX=$out
-			'';
-		installPhase = ''
-			make -j4 install
-			'';
-	  };
+        packages.libzmq = with pkgs;
+          stdenv.mkDerivation {
+            name = "libzmq";
+            src = fetchFromGitHub {
+              owner = "zeromq";
+              repo = "libzmq";
+              rev = "622fc6dde99ee172ebaa9c8628d85a7a1995a21d"; # v4.3.5
+              sha256 = "sha256-q2h5y0Asad+fGB9haO4Vg7a1ffO2JSb7czzlhmT3VmI=";
+            };
+            nativeBuildInputs = [ cmake catch2 ];
+            configurePhase = ''
+              mkdir build && cd build 
+              cmake .. -DCMAKE_INSTALL_PREFIX=$out
+            '';
+            installPhase = ''
+              make -j4 install
+            '';
+          };
 
-	  packages.cppzmq = with pkgs; 
-	  stdenv.mkDerivation {
-	  	name = "cppzmq";
-		src = fetchFromGitHub {
-			owner = "zeromq";
-			repo = "cppzmq"; 
-			rev = "3bcbd9dad2f57180aacd4b4aea292a74f0de7ef4"; #v4.11.0
-			sha256 = "sha256-c6IZ5PnuB96NLYHDHdNclYSF4LpqAfFWxVzeP8BzhCE=";
-		};
-		nativeBuildInputs = [ cmake ];
-		buildInputs = [ packages.libzmq catch2 ];
-		configurePhase = ''
-			mkdir build && cd build 
-			cmake .. -DCPPZMQ_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$out
-			'';
-		installPhase = ''
-			make -j4 install
-			'';
-	  };
+        packages.cppzmq = with pkgs;
+          stdenv.mkDerivation {
+            name = "cppzmq";
+            src = fetchFromGitHub {
+              owner = "zeromq";
+              repo = "cppzmq";
+              rev = "3bcbd9dad2f57180aacd4b4aea292a74f0de7ef4"; # v4.11.0
+              sha256 = "sha256-c6IZ5PnuB96NLYHDHdNclYSF4LpqAfFWxVzeP8BzhCE=";
+            };
+            nativeBuildInputs = [ cmake ];
+            buildInputs = [ packages.libzmq ];
+            configurePhase = ''
+              mkdir build && cd build 
+              cmake .. -DCPPZMQ_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$out
+            '';
+            installPhase = ''
+              make -j4 install
+            '';
+          };
 
-	  devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
             packages.yasmin
             librealsense
             onnxruntime
             # packages.opencv
-	    packages.rerun_cpp
+            packages.rerun_cpp
             boost
             asio
             taskflow
@@ -171,8 +171,12 @@
             packages.cobs-c
             packages.path-planning
             packages.stella_vslam
-	    packages.cppzmq
+            # cppzmq
+            packages.cppzmq
           ];
+          shellHook = ''
+            export ZeroMQ_DIR=${packages.libzmq}
+          '';
         };
 
       });
