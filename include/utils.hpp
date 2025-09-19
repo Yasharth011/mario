@@ -39,9 +39,7 @@ Error destroyHandle(struct utils::rs_handler *handle);
 
 const char *get_error(enum Error err);
 
-template <typename msg_type>
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
-                msg_type pub_msg,
-                std::function<zmq::message_t(msg_type)> get_encoded_msg);
+                std::function<zmq::message_t()> get_encoded_msg);
 } // namespace utils
 #endif

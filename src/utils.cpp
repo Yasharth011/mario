@@ -107,12 +107,10 @@ const char *get_error(enum Error err) {
   return "Undefined Error";
 }
 
-template <typename msg_type>
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
-                msg_type pub_msg,
-                std::function<zmq::message_t(msg_type)> get_encoded_msg) {
+                std::function<zmq::message_t()> get_encoded_msg) {
 
-  zmq::message_t msg = get_encoded_msg(pub_msg);
+  zmq::message_t msg = get_encoded_msg();
   zmq::message_t topic(topic_name.size());
 
   memcpy(topic.data(), topic_name.data(), topic_name.size());
@@ -144,27 +142,26 @@ int main() {
     } catch (zmq::error_t &e) {
       std::cout << e.what() << std::endl;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::string topic1 = "topic1";
     std::string msg1 = "1234";
     std::string topic2 = "topic2";
     std::string msg2 = "5678";
 
     while (true) {
-      int ret1 = utils::publish_msg<std::string>(pub, topic1, msg1, [](std::string msg_pub){
-		      zmq::message_t msg(msg_pub.size()); 
-		      memcpy(msg.data(), msg_pub.data(), msg_pub.size());
-		      return msg;
-		      });
+      int ret1 = utils::publish_msg(pub, topic1, [msg1]() {
+        zmq::message_t msg(msg1.size());
+        memcpy(msg.data(), msg1.data(), msg1.size());
+        return msg;
+      });
 
       if (!ret1)
         std::cout << "error publishing" << std::endl;
 
-      int ret2 = utils::publish_msg<std::string>(pub, topic2, msg2, [](std::string msg_pub){
-		      zmq::message_t msg(msg_pub.size()); 
-		      memcpy(msg.data(), msg_pub.data(), msg_pub.size());
-		      return msg;
-		      });
+      int ret2 = utils::publish_msg(pub, topic2, [msg2]() {
+        zmq::message_t msg(msg2.size());
+        memcpy(msg.data(), msg2.data(), msg2.size());
+        return msg;
+      });
 
       if (!ret2)
         std::cout << "error publishing" << std::endl;
@@ -218,7 +215,6 @@ int main() {
   };
 
   std::thread p(pub_thread);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
   std::thread s1(sub_thread1);
   std::thread s2(sub_thread2);
 
