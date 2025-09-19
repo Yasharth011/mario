@@ -107,14 +107,14 @@ const char *get_error(enum Error err) {
   return "Undefined Error";
 }
 
-template <typename msg_type = std::vector<char>>
+template <typename msg_type>
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
-                msg_type &encoded_msg) {
+                msg_type pub_msg,
+                std::function<zmq::message_t(msg_type)> get_encoded_msg) {
 
-  zmq::message_t msg(encoded_msg.size());
+  zmq::message_t msg = get_encoded_msg(pub_msg);
   zmq::message_t topic(topic_name.size());
 
-  memcpy(msg.data(), encoded_msg.data(), encoded_msg.size());
   memcpy(topic.data(), topic_name.data(), topic_name.size());
 
   try {
@@ -149,13 +149,25 @@ int main() {
     std::string msg1 = "1234";
     std::string topic2 = "topic2";
     std::string msg2 = "5678";
+
     while (true) {
-      if (!utils::publish_msg<std::string>(pub, topic1, msg1))
+      int ret1 = utils::publish_msg<std::string>(pub, topic1, msg1, [](std::string msg_pub){
+		      zmq::message_t msg(msg_pub.size()); 
+		      memcpy(msg.data(), msg_pub.data(), msg_pub.size());
+		      return msg;
+		      });
+
+      if (!ret1)
         std::cout << "error publishing" << std::endl;
 
-      if (!utils::publish_msg<std::string>(pub, topic2, msg2))
+      int ret2 = utils::publish_msg<std::string>(pub, topic2, msg2, [](std::string msg_pub){
+		      zmq::message_t msg(msg_pub.size()); 
+		      memcpy(msg.data(), msg_pub.data(), msg_pub.size());
+		      return msg;
+		      });
+
+      if (!ret2)
         std::cout << "error publishing" << std::endl;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   };
 
