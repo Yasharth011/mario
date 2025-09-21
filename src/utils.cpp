@@ -1,3 +1,4 @@
+#include <thread>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>
@@ -110,13 +111,11 @@ const char *get_error(enum Error err) {
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
                 std::function<zmq::message_t()> get_encoded_msg) {
 
-  zmq::message_t msg = get_encoded_msg();
-  zmq::message_t topic(topic_name.size());
-
-  memcpy(topic.data(), topic_name.data(), topic_name.size());
-
   try {
-    pub.send(topic, zmq::send_flags::sndmore);
+    zmq::message_t msg = get_encoded_msg();
+    zmq::message_t topic(topic_name.size());
+
+    pub.send(zmq::buffer(topic_name), zmq::send_flags::sndmore);
     pub.send(msg, zmq::send_flags::none);
   } catch (zmq::error_t &e) {
     return 0;
