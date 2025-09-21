@@ -27,6 +27,12 @@ struct slamHandle {
   }
 };
 
+struct rawColorDepthPair{
+	const void* colorFrame; 
+	const void* depthFrame; 
+	double timestamp; 
+};
+
 struct RGBDFrame{
 	cv::Mat color_cv;
 	cv::Mat depth_cv;
@@ -37,7 +43,7 @@ double yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
 
 std::string getStatus(slamHandle *handle);
 
-struct RGBDFrame *getColorDepthPair(utils::rs_handler *handle, rs2::frameset &fs);
+struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame);
 
 void resetLocalization(slamHandle *handle);
 

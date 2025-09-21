@@ -11,6 +11,7 @@
 #include <stella_vslam/data/landmark.h>
 #include <stella_vslam/publish/frame_publisher.h>
 #include <stella_vslam/publish/map_publisher.h>
+#include <spdlog/spdlog.h>
 
 #include "slam.hpp"
 
@@ -41,24 +42,23 @@ bool localizationLoopAdjustmentRunning(slamHandle *handle) {
   return handle->slam.loop_BA_is_running();
 }
 
-struct RGBDFrame *getColorDepthPair(utils::rs_handler *handle,
-                                    rs2::frameset &fs) {
+struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame) {
 
   struct RGBDFrame *frame_cv = new RGBDFrame();
 
-  auto aligned_frames = handle->align.process(fs);
+  // auto aligned_frames = handle->align.process(fs);
 
-  rs2::video_frame color_frame = aligned_frames.first(RS2_STREAM_COLOR);
-  rs2::video_frame depth_frame = aligned_frames.get_depth_frame();
+  // rs2::video_frame color_frame = aligned_frames.first(RS2_STREAM_COLOR);
+  // rs2::video_frame depth_frame = aligned_frames.get_depth_frame();
 
   auto color_cv = cv::Mat(cv::Size(640, 480), CV_8UC3,
-                          (void *)(color_frame.get_data()), cv::Mat::AUTO_STEP);
+                          (void *)(frame->colorFrame), cv::Mat::AUTO_STEP);
   cv::cvtColor(color_cv, color_cv, cv::COLOR_BGR2RGB);
 
   auto depth_cv = cv::Mat(cv::Size(640, 480), CV_16U,
-                          (void *)(depth_frame.get_data()), cv::Mat::AUTO_STEP);
+                          (void *)(frame->depthFrame), cv::Mat::AUTO_STEP);
 
-  auto timestamp_cv = fs.get_timestamp();
+  auto timestamp_cv = frame->timestamp;
 
   frame_cv->depth_cv = depth_cv;
   frame_cv->color_cv = color_cv;
@@ -101,7 +101,6 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle,
 #ifdef SLAM_TEST_CPP
 #include <iostream>
 #include <rerun.hpp>
-#include <spdlog/spdlog.h>
 
 int main() {
   spdlog::set_level(spdlog::level::debug);
@@ -129,7 +128,9 @@ int main() {
     rs2::frame frame = rs_ptr->frame_q.wait_for_frame();
 
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
-      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(rs_ptr, fs);
+      
+      struct slam::rawColorDepthPair *frame_raw;
+      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 
       res = slam::runLocalization(frame_cv, slam_handler, &rec);
       current_pose = camera_to_ned_transform * res;
