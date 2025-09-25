@@ -27,7 +27,7 @@ pkg_check_modules(Cobs cobs)
 
 # utils
 add_library(utils src/utils.cpp)
-target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Eigen3)
 target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq)
 
 # tarzan

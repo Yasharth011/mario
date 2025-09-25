@@ -119,8 +119,6 @@ int main(int argc, char *argv[]) {
 
   /* slam vars */
   struct slam::slamHandle *slam_handler = new slam::slamHandle();
-  const Eigen::Matrix<double, 4, 4> camera_to_ned_transform{
-      {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
   Eigen::Matrix<double, 4, 4> current_pose;
   Eigen::Matrix<double, 4, 4> res;
 
@@ -291,7 +289,7 @@ int main(int argc, char *argv[]) {
 
                     res = slam::runLocalization(frame_cv, slam_handler, &rec);
 
-                    current_pose = camera_to_ned_transform * res;
+                    current_pose = utils::camera_to_ned_transform * res;
                     auto translations = current_pose.col(3);
                     auto rotations = current_pose.block<3, 3>(0, 0);
                     spdlog::info("{} {} {}", translations.x(), translations.y(),

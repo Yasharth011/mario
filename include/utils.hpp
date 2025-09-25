@@ -4,6 +4,7 @@
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
+#include <Eigen/Dense>
 #include <utility>
 #include <zmq.hpp>
 
@@ -32,6 +33,9 @@ enum Error : uint8_t {
   InvalidHandle,
   NoFrameset,
 };
+
+const Eigen::Matrix<double, 4, 4> camera_to_ned_transform{
+    {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
 
 struct rs_handler *setupRealsense(struct rs_config config);
 
