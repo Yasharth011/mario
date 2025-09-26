@@ -1,39 +1,31 @@
-#include <boost/asio.hpp>
-#include <boost/program_options.hpp>
-
-#include <cstdint>
+#include <chrono>
 #include <cstring>
 #include <iterator>
+#include <string>
+#include <sys/types.h>
+#include <thread>
+#include <boost/asio.hpp>
+#include <boost/program_options.hpp>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
-
 #include <opencv2/opencv.hpp>
-
-#include <string>
-#include <sys/types.h>
 #include <yasmin/blackboard/blackboard.hpp>
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
-
-#include <taskflow/taskflow.hpp>
-
-#include <zmq.hpp>
-
-#include <rerun.hpp>
-
-#include <librealsense2/rs.hpp>
-#include <zmq_addon.hpp>
-
 #include <spdlog/spdlog.h>
+#include <taskflow/taskflow.hpp>
+#include <zmq.hpp>
+#include <zmq_addon.hpp>
+#include <rerun.hpp>
 
 #include "slam.hpp"
 #include "tarzan.hpp"
 #include "utils.hpp"
+#include "nav.hpp"
 
 namespace po = boost::program_options;
-
 
 class Navigate : public yasmin::State {
 
@@ -96,6 +88,7 @@ int main(int argc, char *argv[]) {
   std::string topic_color = "color_frame";
   std::string topic_depth = "depth_frame";
   std::string topic_timestamp = "timestamp";
+  std::string topic_pointcloud = "point_cloud";
 
   /* Yasmin vars */
   auto sm = std::make_shared<yasmin::StateMachine>(
@@ -123,12 +116,12 @@ int main(int argc, char *argv[]) {
   Eigen::Matrix<double, 4, 4> res;
 
   /* path planning vars */
+  struct nav::navContext *nav_ctx = new nav::navContext();
+  struct Slam_Pose pose; 
 
-  /* Tarzan com vars */
-  const std::string SERIAL_PORT = "/dev/tty0";
-	  // =
-   //    vm["serial"].as<std::string>(); // serial port to nucleo
-  const int BAUDRATE =9600;// vm["br"].as<int>();
+  /* serial com vars */ 
+  const std::string SERIAL_PORT = vm["seiral"].as<std::string>(); 
+  const int BAUDRATE = vm["br"].as<int>();
   boost::asio::io_context io;
   boost::asio::serial_port *nucleo;
 
@@ -145,8 +138,8 @@ int main(int argc, char *argv[]) {
     // Could not setup Realsense
     return -1;
   }
-  // Successfull setup of realsense
-
+  // Successfull setup of realsense    
+                                       
   /* CONFIGURING NUCLEO COM */
 
   // open nucleo com
@@ -190,7 +183,7 @@ int main(int argc, char *argv[]) {
   try {
     mapping_sub.connect("inproc://realsense");
 
-    mapping_sub.set(zmq::sockopt::subscribe, topic_depth);
+    mapping_sub.set(zmq::sockopt::subscribe, topic_pointcloud);
   } catch (zmq::error_t &e) {
     // e.what();
   }
@@ -223,6 +216,22 @@ int main(int argc, char *argv[]) {
 
               double timestamp = fs.get_timestamp();
 
+	      // get raw point cloud data
+	      rs2::points points = rs_ptr->pc.calculate(depthFrame);
+              std::vector<Eigen::Vector3f> raw_points;
+              raw_points.reserve(points.size());
+              const rs2::vertex *vertices = points.get_vertices();
+              for (size_t i = 0; i < points.size(); i++) {
+                if (vertices[i].z) {
+		  Eigen::Matrix<double, 4, 1> vertices_vector{{vertices[i].x}, {vertices[i].y}, {vertices[i].z}, {1.0}};
+
+		  Eigen::Matrix<double, 4, 1> vertices_in_ned = utils::camera_to_ned_transform * vertices_vector; 
+
+		  raw_points.push_back(vertices_in_ned.head<3>().cast<float>());
+                }
+              }
+
+	      // publishing messages
               ret = utils::publish_msg(
                   pub, topic_color, [raw_colorFrame, colorFrame_len]() {
                     zmq::message_t msg(colorFrame_len);
@@ -249,6 +258,14 @@ int main(int argc, char *argv[]) {
               });
               if(!ret) {//error publishing
 			}
+
+              ret = utils::publish_msg(pub, topic_pointcloud, [raw_points]() {
+                zmq::message_t msg(raw_points.size());
+		memcpy(msg.data(), raw_points.data(), raw_points.size());
+                return msg;
+              });
+              if(!ret) {//error publishing
+			}
             }
           })
           .name("capture_frame");
@@ -271,10 +288,6 @@ int main(int argc, char *argv[]) {
 
                     struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
 
-                    // memcpy(&frame_raw->colorFrame, colorFrame_msg[1].data(),
-                    //        sizeof(colorFrame_msg[1].data()));
-                    // memcpy(&frame_raw->depthFrame, depthFrame_msg[1].data(),
-                    //        sizeof(depthFrame_msg[1].data()));
 		    frame_raw->colorFrame = colorFrame_msg[1].data();
 		    frame_raw->depthFrame = depthFrame_msg[1].data();
 
@@ -298,7 +311,35 @@ int main(int argc, char *argv[]) {
                   .name("slam");
 
   // mapping task
-  auto mapping = taskflow.emplace([&]() {}).name("mapping");
+  auto mapping =
+      taskflow
+          .emplace([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::vector<zmq::message_t> pointcloud_msg;
+
+            zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
+                mapping_sub, std::back_inserter(pointcloud_msg));
+
+            const float *points_buffer =
+                static_cast<const float *>(pointcloud_msg[1].data());
+            size_t points_buffer_size = pointcloud_msg[1].size();
+
+            std::vector<Eigen::Vector3f> raw_points;
+
+            for (size_t i = 0; i < points_buffer_size; i++) {
+              raw_points.push_back(Eigen::Vector3f(points_buffer[i * 3 + 0],
+                                                   points_buffer[i * 3 + 1],
+                                                   points_buffer[i * 3 + 2]));
+            }
+
+            std::vector<Eigen::Vector3f> filtered_points =
+                nav::processPointCloud(raw_points);
+
+            nav::processPointCloud(raw_points);
+
+            nav::updateMaps(nav_ctx, pose, filtered_points);
+          })
+          .name("mapping");
 
   // state machine task
   //   try {
