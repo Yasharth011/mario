@@ -3,10 +3,8 @@
 
 #include <Eigen/Dense>
 #include <librealsense2/rs.hpp>
-// #include <shared_mutex>
 #include <stella_vslam/config.h>
 #include <stella_vslam/system.h>
-#include <variant>
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
