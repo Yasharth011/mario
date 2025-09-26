@@ -27,8 +27,8 @@ pkg_check_modules(Cobs cobs)
 
 # utils
 add_library(utils src/utils.cpp)
-target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Eigen3)
-target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq)
+target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen)
 
 # tarzan
 add_library(tarzan src/tarzan.cpp)
@@ -48,6 +48,12 @@ target_link_libraries(slam
   stella_vslam::stella_vslam
   ${GLEW_LIBS}
   ${Pangolin_LIBS})
+
+# nav
+add_library(nav src/nav.cpp)
+target_include_directories(
+	nav PUBLIC include ${PCL_INCLUDE_DIRS})
+target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen motionplanner)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)
@@ -71,6 +77,6 @@ endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE yasmin slam tarzan utils ${PCL_INCLUDE_DIRS} include)
+target_include_directories(mario PRIVATE yasmin slam tarzan utils include nav)
 
-target_link_libraries(mario PRIVATE ${PCL_LIBRARIES} yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils)
+target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils tarzan nav)
