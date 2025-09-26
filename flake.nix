@@ -81,7 +81,7 @@
               sha256 = "sha256-m+YvW7sjPWJeiDPwD+QYc+E742uIYfy4AW1dhfGz594=";
             };
             nativeBuildInputs = [ cmake ];
-            buildInputs = [
+            propagatedBuildInputs = [
               eigen
               librealsense
               boost
@@ -102,6 +102,7 @@
         packages.stella_vslam = with pkgs;
           stdenv.mkDerivation {
             name = "stella_vslam";
+            # packages.opencv
             src = fetchFromGitHub {
               owner = "stella-cv";
               repo = "stella_vslam";
@@ -159,24 +160,20 @@
           nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
             packages.yasmin
-            librealsense
+            # librealsense
             onnxruntime
-            # packages.opencv
             packages.rerun_cpp
-            boost
+            # boost
             asio
             taskflow
-            eigen
-            pcl
+            # eigen
+            # pcl
             packages.cobs-c
             packages.path-planning
             packages.stella_vslam
-            # cppzmq
             packages.cppzmq
+	    packages.libzmq
           ];
-          shellHook = ''
-            export ZeroMQ_DIR=${packages.libzmq}
-          '';
         };
 
       });
