@@ -2,6 +2,7 @@
 #define UTILS_HPP
 
 #include <librealsense2/h/rs_types.h>
+#include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
