@@ -1,4 +1,3 @@
-#include <thread>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>

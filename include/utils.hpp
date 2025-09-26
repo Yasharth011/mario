@@ -6,7 +6,6 @@
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
-#include <utility>
 #include <zmq.hpp>
 
 namespace utils {

@@ -3,11 +3,11 @@
 
 #include <Eigen/Dense>
 #include <librealsense2/rs.hpp>
-#include <stella_vslam/config.h>
-#include <stella_vslam/system.h>
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
+#include <stella_vslam/config.h>
+#include <stella_vslam/system.h>
 
 #include "utils.hpp"
 
@@ -25,16 +25,16 @@ struct slamHandle {
   }
 };
 
-struct rawColorDepthPair{
-	const void* colorFrame; 
-	const void* depthFrame; 
-	double timestamp; 
+struct rawColorDepthPair {
+  const void *colorFrame;
+  const void *depthFrame;
+  double timestamp;
 };
 
-struct RGBDFrame{
-	cv::Mat color_cv;
-	cv::Mat depth_cv;
-	double timestamp_cv;
+struct RGBDFrame {
+  cv::Mat color_cv;
+  cv::Mat depth_cv;
+  double timestamp_cv;
 };
 
 double yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
@@ -47,6 +47,7 @@ void resetLocalization(slamHandle *handle);
 
 bool localizationLoopAdjustmentRunning(slamHandle *handle);
 
-auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)-> Eigen::Matrix<double, 4, 4> ;
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)
+    -> Eigen::Matrix<double, 4, 4>;
 } // namespace slam
 #endif

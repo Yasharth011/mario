@@ -1,29 +1,29 @@
+#include <boost/asio.hpp>
+#include <boost/program_options.hpp>
 #include <chrono>
 #include <cstring>
 #include <iterator>
-#include <string>
-#include <sys/types.h>
-#include <thread>
-#include <boost/asio.hpp>
-#include <boost/program_options.hpp>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
+#include <rerun.hpp>
+#include <spdlog/spdlog.h>
+#include <string>
+#include <sys/types.h>
+#include <taskflow/taskflow.hpp>
+#include <thread>
 #include <yasmin/blackboard/blackboard.hpp>
 #include <yasmin/logs.hpp>
 #include <yasmin/state.hpp>
 #include <yasmin/state_machine.hpp>
-#include <spdlog/spdlog.h>
-#include <taskflow/taskflow.hpp>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
-#include <rerun.hpp>
 
+#include "nav.hpp"
 #include "slam.hpp"
 #include "tarzan.hpp"
 #include "utils.hpp"
-#include "nav.hpp"
 
 namespace po = boost::program_options;
 
@@ -117,10 +117,10 @@ int main(int argc, char *argv[]) {
 
   /* path planning vars */
   struct nav::navContext *nav_ctx = new nav::navContext();
-  struct Slam_Pose pose; 
+  struct Slam_Pose pose;
 
-  /* serial com vars */ 
-  const std::string SERIAL_PORT = vm["seiral"].as<std::string>(); 
+  /* serial com vars */
+  const std::string SERIAL_PORT = vm["seiral"].as<std::string>();
   const int BAUDRATE = vm["br"].as<int>();
   boost::asio::io_context io;
   boost::asio::serial_port *nucleo;
@@ -138,8 +138,8 @@ int main(int argc, char *argv[]) {
     // Could not setup Realsense
     return -1;
   }
-  // Successfull setup of realsense    
-                                       
+  // Successfull setup of realsense
+
   /* CONFIGURING NUCLEO COM */
 
   // open nucleo com
@@ -216,30 +216,32 @@ int main(int argc, char *argv[]) {
 
               double timestamp = fs.get_timestamp();
 
-	      // get raw point cloud data
-	      rs2::points points = rs_ptr->pc.calculate(depthFrame);
+              // get raw point cloud data
+              rs2::points points = rs_ptr->pc.calculate(depthFrame);
               std::vector<Eigen::Vector3f> raw_points;
               raw_points.reserve(points.size());
               const rs2::vertex *vertices = points.get_vertices();
               for (size_t i = 0; i < points.size(); i++) {
                 if (vertices[i].z) {
-		  Eigen::Matrix<double, 4, 1> vertices_vector{{vertices[i].x}, {vertices[i].y}, {vertices[i].z}, {1.0}};
+                  Eigen::Matrix<double, 4, 1> vertices_vector{
+                      {vertices[i].x}, {vertices[i].y}, {vertices[i].z}, {1.0}};
 
-		  Eigen::Matrix<double, 4, 1> vertices_in_ned = utils::camera_to_ned_transform * vertices_vector; 
+                  Eigen::Matrix<double, 4, 1> vertices_in_ned =
+                      utils::camera_to_ned_transform * vertices_vector;
 
-		  raw_points.push_back(vertices_in_ned.head<3>().cast<float>());
+                  raw_points.push_back(vertices_in_ned.head<3>().cast<float>());
                 }
               }
 
-	      // publishing messages
+              // publishing messages
               ret = utils::publish_msg(
                   pub, topic_color, [raw_colorFrame, colorFrame_len]() {
                     zmq::message_t msg(colorFrame_len);
                     memcpy(msg.data(), raw_colorFrame, colorFrame_len);
                     return msg;
                   });
-              if(!ret){ //error publishing
-			}
+              if (!ret) { // error publishing
+              }
 
               ret = utils::publish_msg(
                   pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
@@ -247,25 +249,26 @@ int main(int argc, char *argv[]) {
                     memcpy(msg.data(), raw_depthFrame, depthFrame_len);
                     return msg;
                   });
-              if(!ret) {//error publishing
-			}
+              if (!ret) { // error publishing
+              }
 
               ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
-		std::string timestamp_string = std::to_string(timestamp);
+                std::string timestamp_string = std::to_string(timestamp);
                 zmq::message_t msg(timestamp_string.size());
-		memcpy(msg.data(), timestamp_string.data(), timestamp_string.size());
+                memcpy(msg.data(), timestamp_string.data(),
+                       timestamp_string.size());
                 return msg;
               });
-              if(!ret) {//error publishing
-			}
+              if (!ret) { // error publishing
+              }
 
               ret = utils::publish_msg(pub, topic_pointcloud, [raw_points]() {
                 zmq::message_t msg(raw_points.size());
-		memcpy(msg.data(), raw_points.data(), raw_points.size());
+                memcpy(msg.data(), raw_points.data(), raw_points.size());
                 return msg;
               });
-              if(!ret) {//error publishing
-			}
+              if (!ret) { // error publishing
+              }
             }
           })
           .name("capture_frame");
@@ -273,8 +276,7 @@ int main(int argc, char *argv[]) {
   // slam task
   auto slam = taskflow
                   .emplace([&]() {
-                    std::this_thread::sleep_for(
-                        std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     std::vector<zmq::message_t> colorFrame_msg;
                     std::vector<zmq::message_t> depthFrame_msg;
                     std::vector<zmq::message_t> timestamp_msg;
@@ -286,16 +288,17 @@ int main(int argc, char *argv[]) {
                     zmq::recv_result_t result_timestamp = zmq::recv_multipart(
                         slam_sub, std::back_inserter(timestamp_msg));
 
-                    struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
+                    struct slam::rawColorDepthPair *frame_raw =
+                        new slam::rawColorDepthPair();
 
-		    frame_raw->colorFrame = colorFrame_msg[1].data();
-		    frame_raw->depthFrame = depthFrame_msg[1].data();
+                    frame_raw->colorFrame = colorFrame_msg[1].data();
+                    frame_raw->depthFrame = depthFrame_msg[1].data();
 
-		    std::string timestamp_string; 
+                    std::string timestamp_string;
                     memcpy(timestamp_string.data(), timestamp_msg[1].data(),
                            sizeof(timestamp_msg[1].data()));
-		    double timestamp = std::stod(timestamp_string);
-		    frame_raw->timestamp = timestamp; 
+                    double timestamp = std::stod(timestamp_string);
+                    frame_raw->timestamp = timestamp;
 
                     struct slam::RGBDFrame *frame_cv =
                         slam::getColorDepthPair(frame_raw);
@@ -354,8 +357,8 @@ int main(int argc, char *argv[]) {
   // mapping.precede(capture_frame);
   // mapping.precede(path_planning);
 
-  while(true){
-  executor.run(taskflow).wait();
+  while (true) {
+    executor.run(taskflow).wait();
   }
 
   // killing objects

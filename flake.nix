@@ -77,7 +77,7 @@
             src = fetchFromGitHub {
               owner = "CPPavithra";
               repo = "PathPlanning-Astar";
-              rev = "33484f764ea74ea7d1aeeee68a5ea61aec015c04"; # v0.1
+              rev = "33484f764ea74ea7d1aeeee68a5ea61aec015c04";
               sha256 = "sha256-m+YvW7sjPWJeiDPwD+QYc+E742uIYfy4AW1dhfGz594=";
             };
             nativeBuildInputs = [ cmake ];
@@ -160,14 +160,10 @@
           nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
             packages.yasmin
-            # librealsense
             onnxruntime
             packages.rerun_cpp
-            # boost
             asio
             taskflow
-            # eigen
-            # pcl
             packages.cobs-c
             packages.path-planning
             packages.stella_vslam

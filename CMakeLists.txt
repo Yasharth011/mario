@@ -77,6 +77,6 @@ endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE yasmin slam tarzan utils include nav)
+target_include_directories(mario PRIVATE yasmin slam tarzan utils nav)
 
-target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan motionplanner rerun_sdk slam utils tarzan nav)
+target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan motionplanner slam utils tarzan nav)

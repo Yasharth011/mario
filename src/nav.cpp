@@ -28,7 +28,7 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
 }
 
 void updateMaps(struct navContext *ctx, struct Slam_Pose &pose,
-               const std::vector<Eigen::Vector3f> &points) {
+                const std::vector<Eigen::Vector3f> &points) {
   create_gridmap(ctx->gridmap, points, pose);
 
   updateQuadtreesWithPointCloud(&(ctx->lowQuadtree), &(ctx->midQuadtree),
@@ -39,16 +39,17 @@ void updateMaps(struct navContext *ctx, struct Slam_Pose &pose,
   }
 }
 
-std::vector<Node> prunePath(const std::vector<Node>& path){
-	if(path.empty()) return {};
-	std::vector<Node> pruned_path; 
-	pruned_path.push_back(path[0]);
-	for(size_t i = 1; i < path.size(); ++i) {
-		if(!(path[i] == path[i-1])) {
-			pruned_path.push_back(path[i]);
-		}
-	}
-	return pruned_path; 
+std::vector<Node> prunePath(const std::vector<Node> &path) {
+  if (path.empty())
+    return {};
+  std::vector<Node> pruned_path;
+  pruned_path.push_back(path[0]);
+  for (size_t i = 1; i < path.size(); ++i) {
+    if (!(path[i] == path[i - 1])) {
+      pruned_path.push_back(path[i]);
+    }
+  }
+  return pruned_path;
 }
 
 bool findPath(struct navContext *ctx) {
@@ -56,16 +57,16 @@ bool findPath(struct navContext *ctx) {
       astarsparse(ctx->gridmap, ctx->current_start, ctx->current_goal);
 
   if (sparse_path.empty()) {
-    ctx->dense_path =
-        astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
-                  ctx->current_start, ctx->current_goal, 1.0f);
+    ctx->dense_path = astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree),
+                                &(ctx->highQuadtree), ctx->current_start,
+                                ctx->current_goal, 1.0f);
   } else {
     ctx->dense_path.push_back(sparse_path[0]);
 
     for (size_t i = 1; i < sparse_path.size(); ++i) {
-      std::vector<Node> segment =
-          astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
-                     sparse_path[i - 1], sparse_path[i], 1.0f);
+      std::vector<Node> segment = astarquad(
+          &(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
+          sparse_path[i - 1], sparse_path[i], 1.0f);
 
       if (!segment.empty()) {
         ctx->dense_path.insert(ctx->dense_path.end(), segment.begin() + 1,

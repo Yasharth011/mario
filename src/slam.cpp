@@ -8,10 +8,10 @@
 #include <rerun.hpp>
 #include <rerun/archetypes/transform3d.hpp>
 #include <rerun/archetypes/view_coordinates.hpp>
+#include <spdlog/spdlog.h>
 #include <stella_vslam/data/landmark.h>
 #include <stella_vslam/publish/frame_publisher.h>
 #include <stella_vslam/publish/map_publisher.h>
-#include <spdlog/spdlog.h>
 
 #include "slam.hpp"
 
@@ -67,8 +67,7 @@ struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame) {
   return frame_cv;
 }
 
-auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle,
-                     const void *rec)
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)
     -> Eigen::Matrix<double, 4, 4> {
 
   Eigen::Matrix<double, 4, 4> result;
@@ -128,7 +127,7 @@ int main() {
     rs2::frame frame = rs_ptr->frame_q.wait_for_frame();
 
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
-      
+
       struct slam::rawColorDepthPair *frame_raw;
       struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 

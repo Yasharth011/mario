@@ -1,7 +1,8 @@
 #include <cobs.h>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <imu.h>
+#include <mutex>
 
 #include "tarzan.hpp"
 
@@ -155,7 +156,7 @@ int main(int argc, char *argv[]) {
 
   std::string err = get_error(tarzan::write_msg(nucleo, msg));
 
-  std::cout<<"Error : "<<err; 
+  std::cout << "Error : " << err;
 
   tarzan::close(nucleo);
 }
