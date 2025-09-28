@@ -77,8 +77,8 @@
             src = fetchFromGitHub {
               owner = "CPPavithra";
               repo = "PathPlanning-Astar";
-              rev = "33484f764ea74ea7d1aeeee68a5ea61aec015c04";
-              sha256 = "sha256-m+YvW7sjPWJeiDPwD+QYc+E742uIYfy4AW1dhfGz594=";
+              rev = "0ac4007e3f2b3789118e127eb8c3d409d1b10efa";
+              sha256 = "sha256-erjYJqPE77r28k8DroJGadxGRV66i4IN7AlBu/mR3I0=";
             };
             nativeBuildInputs = [ cmake ];
             propagatedBuildInputs = [
