@@ -1,11 +1,14 @@
 #include "nav.hpp"
+#include <mapping.h>
+#include <pathplanning.h>
+#include <quadtree.h>
 
 namespace nav {
 
 std::vector<Eigen::Vector3f>
 processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
 
-  auto pcl_cloud = convert_to_pcl(raw_points);
+  auto pcl_cloud = mapping::convert_to_pcl(raw_points);
 
   pcl::PassThrough<pcl::PointXYZ> passthrough;
   passthrough.setInputCloud(pcl_cloud);
@@ -27,11 +30,11 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
   return filtered_points;
 }
 
-void updateMaps(struct navContext *ctx, struct Slam_Pose &pose,
+void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
                 const std::vector<Eigen::Vector3f> &points) {
-  create_gridmap(ctx->gridmap, points, pose);
+ mapping::create_gridmap(ctx->gridmap, points, pose);
 
-  updateQuadtreesWithPointCloud(&(ctx->lowQuadtree), &(ctx->midQuadtree),
+ quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree), &(ctx->midQuadtree),
                                 &(ctx->highQuadtree), points, pose);
 
   if (ctx->gridmap.occupancy_grid.size() >= batch_threshold) {
@@ -39,10 +42,10 @@ void updateMaps(struct navContext *ctx, struct Slam_Pose &pose,
   }
 }
 
-std::vector<Node> prunePath(const std::vector<Node> &path) {
+std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path) {
   if (path.empty())
     return {};
-  std::vector<Node> pruned_path;
+  std::vector<planning::Node> pruned_path;
   pruned_path.push_back(path[0]);
   for (size_t i = 1; i < path.size(); ++i) {
     if (!(path[i] == path[i - 1])) {
@@ -53,18 +56,18 @@ std::vector<Node> prunePath(const std::vector<Node> &path) {
 }
 
 bool findPath(struct navContext *ctx) {
-  std::vector<Node> sparse_path =
+  std::vector<planning::Node> sparse_path =
       astarsparse(ctx->gridmap, ctx->current_start, ctx->current_goal);
 
   if (sparse_path.empty()) {
-    ctx->dense_path = astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree),
+    ctx->dense_path = planning::astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree),
                                 &(ctx->highQuadtree), ctx->current_start,
                                 ctx->current_goal, 1.0f);
   } else {
     ctx->dense_path.push_back(sparse_path[0]);
 
     for (size_t i = 1; i < sparse_path.size(); ++i) {
-      std::vector<Node> segment = astarquad(
+      std::vector<planning::Node> segment = planning::astarquad(
           &(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
           sparse_path[i - 1], sparse_path[i], 1.0f);
 

@@ -14,23 +14,23 @@
 namespace nav {
 
 inline int batch_threshold = 1;
-inline Point center;
+inline mapping::Point center;
 inline float rootSize;
 
 struct navContext {
-  Gridmap gridmap;
-  QuadtreeNode lowQuadtree;
-  QuadtreeNode midQuadtree;
-  QuadtreeNode highQuadtree;
-  Node start;
-  Node goal;
-  Node current_start;
-  Node current_goal;
-  Node final_goal;
-  std::vector<Node> full_path;
+  mapping::Gridmap gridmap;
+  quadtree::QuadtreeNode lowQuadtree;
+  quadtree::QuadtreeNode midQuadtree;
+  quadtree::QuadtreeNode highQuadtree;
+  planning::Node start;
+  planning::Node goal;
+  planning::Node current_start;
+  planning::Node current_goal;
+  planning::Node final_goal;
+  std::vector<planning::Node> full_path;
   std::vector<std::pair<int, int>> visited_node;
   std::set<std::pair<int, int>> failed_goals;
-  std::vector<Node> dense_path;
+  std::vector<planning::Node> dense_path;
 
   navContext()
       : gridmap(), lowQuadtree(center, rootSize, 1),
@@ -43,12 +43,13 @@ struct navContext {
 std::vector<Eigen::Vector3f>
 processPointCloud(std::vector<Eigen::Vector3f> raw_points);
 
-void updateMaps(struct navContext *ctx, struct Slam_Pose &pose,
+void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
                 const std::vector<Eigen::Vector3f> &points);
 
-std::vector<Node> prunePath(const std::vector<Node> &path);
+std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
 
-bool findPath(const Node &current_start, const Node &current_goal,
-              std::vector<Node> &dense_path);
+bool findPath(const planning::Node &current_start,
+              const planning::Node &current_goal,
+              std::vector<planning::Node> &dense_path);
 } // namespace nav
 #endif

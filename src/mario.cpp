@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
 
   /* path planning vars */
   struct nav::navContext *nav_ctx = new nav::navContext();
-  struct Slam_Pose pose;
+  struct mapping::Slam_Pose pose;
 
   /* serial com vars */
   const std::string SERIAL_PORT = vm["seiral"].as<std::string>();
