@@ -52,7 +52,7 @@ target_link_libraries(slam
 # nav
 add_library(nav src/nav.cpp)
 target_include_directories(
-	nav PUBLIC include ${PCL_INCLUDE_DIRS})
+	nav PUBLIC include ${PCL_INCLUDE_DIRS} motionplanner)
 target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen motionplanner)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
@@ -79,4 +79,4 @@ add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
 target_include_directories(mario PRIVATE yasmin slam tarzan utils nav)
 
-target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan motionplanner slam utils tarzan nav)
+target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan slam utils tarzan nav)
