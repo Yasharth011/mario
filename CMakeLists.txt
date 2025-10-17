@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(Mario VERSION 0.1 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE Debug)
 
@@ -31,9 +32,9 @@ target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${Ope
 target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen)
 
 # tarzan
-add_library(tarzan src/tarzan.cpp)
-target_include_directories(tarzan PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
-target_link_libraries(tarzan PUBLIC ${Cobs_LDFLAGS})
+add_library(serial src/serial.cpp)
+target_include_directories(serial PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
+target_link_libraries(serial PUBLIC ${Cobs_LDFLAGS})
 
 # slam
 add_library(slam src/slam.cpp)
@@ -58,9 +59,9 @@ target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen motionplanner)
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)
 	# tarzan test 
-	add_executable(tarzan_test src/tarzan.cpp)
-	target_compile_definitions(tarzan_test PRIVATE TARZAN_TEST_CPP=1)
-	target_link_libraries(tarzan_test PRIVATE tarzan)
+	add_executable(serial_test src/serial.cpp)
+	target_compile_definitions(serial_test PRIVATE SERIAL_TEST_CPP=1)
+	target_link_libraries(serial_test PRIVATE serial)
 	
 	# slam test 
 	add_executable(slam_test src/slam.cpp)
@@ -77,6 +78,6 @@ endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
-target_include_directories(mario PRIVATE yasmin slam tarzan utils nav)
+target_include_directories(mario PRIVATE yasmin slam serial utils nav)
 
-target_link_libraries(mario PRIVATE yasmin Boost::program_options tarzan slam utils tarzan nav)
+target_link_libraries(mario PRIVATE yasmin Boost::program_options slam utils serial nav)
