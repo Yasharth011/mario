@@ -37,7 +37,7 @@ struct RGBDFrame {
   double timestamp_cv;
 };
 
-double yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
+float yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
 
 std::string getStatus(slamHandle *handle);
 

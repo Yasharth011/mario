@@ -16,8 +16,8 @@
 #include "slam.hpp"
 
 namespace slam {
-double yawfromPose(Eigen::Matrix<double, 4, 4> &pose) {
-  double yaws[2] = {0, 0};
+float yawfromPose(Eigen::Matrix<double, 4, 4> &pose) {
+  float yaws[2] = {0, 0};
 
   // Error : cannot find yaw
   if (pose(2, 0) == 1 or pose(2, 0) == -1)
