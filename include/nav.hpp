@@ -10,6 +10,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <quadtree.h>
+#include <rerun/recording_stream.hpp>
 
 namespace nav {
 
@@ -51,5 +52,9 @@ std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
 bool findPath(const planning::Node &current_start,
               const planning::Node &current_goal,
               std::vector<planning::Node> &dense_path);
+
+void log_gridmap(struct navContext *ctx, float grid_resolution,
+                 const rerun::RecordingStream &rec,
+                 const struct mapping::Slam_Pose &pose);
 } // namespace nav
 #endif

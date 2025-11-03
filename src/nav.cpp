@@ -32,10 +32,11 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
 
 void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
                 const std::vector<Eigen::Vector3f> &points) {
- mapping::create_gridmap(ctx->gridmap, points, pose);
+  mapping::create_gridmap(ctx->gridmap, points, pose);
 
- quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree), &(ctx->midQuadtree),
-                                &(ctx->highQuadtree), points, pose);
+  quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree),
+                                          &(ctx->midQuadtree),
+                                          &(ctx->highQuadtree), points, pose);
 
   if (ctx->gridmap.occupancy_grid.size() >= batch_threshold) {
     batch_threshold += ctx->gridmap.occupancy_grid.size();
@@ -60,9 +61,9 @@ bool findPath(struct navContext *ctx) {
       astarsparse(ctx->gridmap, ctx->current_start, ctx->current_goal);
 
   if (sparse_path.empty()) {
-    ctx->dense_path = planning::astarquad(&(ctx->lowQuadtree), &(ctx->midQuadtree),
-                                &(ctx->highQuadtree), ctx->current_start,
-                                ctx->current_goal, 1.0f);
+    ctx->dense_path = planning::astarquad(
+        &(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
+        ctx->current_start, ctx->current_goal, 1.0f);
   } else {
     ctx->dense_path.push_back(sparse_path[0]);
 
@@ -79,5 +80,44 @@ bool findPath(struct navContext *ctx) {
     }
   }
   return !ctx->dense_path.empty();
+}
+
+void log_gridmap(struct navContext *ctx, float grid_resolution,
+                 const rerun::RecordingStream &rec,
+                 const mapping::Slam_Pose &pose) {
+  float min_x = (pose.x - 5.0f) / grid_resolution;
+  float max_x = (pose.x + 5.0f) / grid_resolution;
+  float min_y = (pose.y - 5.0f) / grid_resolution;
+  float max_y = (pose.y + 5.0) / grid_resolution;
+  float scale_factor = 1000.0f; // Put 1000 so that it is in mm
+  std::cout << "Occupancy grid size: " << ctx->gridmap.occupancy_grid.size()
+            << std::endl;
+  if (ctx->gridmap.occupancy_grid.empty()) {
+    std::cout << "Error: Occupancy grid is empty!" << std::endl;
+  } else {
+    std::cout << "Occupancy grid has data!" << std::endl;
+  }
+  std::vector<rerun::Color> colors;
+  std::vector<rerun::Position3D> roverposition;
+
+  for (const auto &entry : ctx->gridmap.occupancy_grid) {
+    const auto &[coord, value] = entry;
+    float grid_x = coord.first;
+    float grid_y = coord.second;
+
+    rerun::Color color = mapping::get_color_for_cost(value);
+
+    std::vector<rerun::Position3D> points = {
+        rerun::Position3D{grid_x, grid_y, 0.0f}};
+
+    colors.push_back(color);
+    std::string cell_id = "gridcell_(" + std::to_string(grid_x) + "," +
+                          std::to_string(grid_y) + ")_" +
+                          std::to_string(value.cost);
+    std::string tag = "grid_map" + cell_id;
+    rec.log(tag,
+            rerun::Points3D(points).with_colors({color}).with_radii({0.5f}));
+  }
+  colors.clear();
 }
 } // namespace nav
