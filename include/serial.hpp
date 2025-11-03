@@ -9,7 +9,7 @@ using namespace boost::asio;
 
 namespace serial {
 
-enum Error : uint8_t { WriteSuccess = 0, CobsEncodeError, AsioWriteError };
+enum Error : uint8_t { WriteSuccess = 0, ReadSuccess, CobsEncodeError, CobsDecodeError, AsioWriteError, AsioReadError };
 
 void asyncWriteHandler(const boost::system::error_code &error,
                        std::size_t bytes_transferred);
@@ -19,7 +19,7 @@ Error asyncWrite(serial_port *serial, const uint8_t msg[], size_t MSG_LEN);
 template <typename msgType>
 Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN);
 
-// Error read_msg(serial_port *serial, uint8_t *buffer, size_t MSG_LEN);
+Error read_msg(serial_port *serial, uint8_t *buffer, size_t MSG_LEN);
 
 void close(serial_port *serial);
 

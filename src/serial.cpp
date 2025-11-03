@@ -8,17 +8,22 @@
 
 namespace serial {
 
-std::mutex write_mtx; // mutex to guard async write
-std::mutex error_mtx; // mutex to gaurd error in async write
+std::mutex write_mtx;       // mutex to guard async write
+std::mutex read_mtx;        // mutex to guard async read
+std::mutex write_error_mtx; // mutex to gaurd error in async write
+std::mutex read_error_mtx;  // mutex to gaurd error in async read
 bool writeLocked = false;
+bool readLocked = false;
 std::condition_variable writeCV;
-int err;
+std::condition_variable readCV;
+int write_err;
+int read_err;
 
 void asyncWriteHandler(const boost::system::error_code &error,
                        std::size_t bytes_transferred) {
-  std::unique_lock<std::mutex> elk(error_mtx);
+  std::unique_lock<std::mutex> elk(write_error_mtx);
   if (error) {
-    err = error.value();
+    write_err = error.value();
   }
   elk.unlock();
 
@@ -45,9 +50,9 @@ Error asyncWrite(serial_port *serial, const uint8_t msg[], size_t MSG_LEN) {
                  std::size_t bytes_transferred) {
                 asyncWriteHandler(error, bytes_transferred);
               });
-  std::unique_lock<std::mutex> elk(error_mtx);
+  std::unique_lock<std::mutex> elk(write_error_mtx);
 
-  if (!err)
+  if (!write_err)
     return Error::WriteSuccess;
   else
     return Error::AsioWriteError;
@@ -70,15 +75,60 @@ Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN) {
   return asyncWrite(serial, buffer, MSG_LEN);
 }
 
-// Error asyncRead(serial_port* serial){
-// 	std::unique_lock<std::mutex> lock(read_mtx);
-// }
-//
-// template<typename msg_type>
-// Error read_msg(serial_port *serial, msg_type *buffer, size_t MSG_LEN) {
-//
-// 	return asyncRead(serial);
-// }
+void asyncReadHandler(const boost::system::error_code &error,
+                      std::size_t bytes_transferred) {
+  std::unique_lock<std::mutex> elk(read_error_mtx);
+  if (error) {
+    read_err = error.value();
+  }
+  elk.unlock();
+
+  std::unique_lock<std::mutex> lk(read_mtx);
+  readLocked = false;
+  lk.unlock();         // next write is possible
+  readCV.notify_one(); // if there is next write() waiting, notify it so it can
+                       // continue
+}
+
+Error asyncRead(serial_port *serial, uint8_t *read_buffer, size_t MSG_LEN) {
+  std::unique_lock<std::mutex> lock(read_mtx);
+
+  if (readLocked)
+    readCV.wait(lock);
+
+  readLocked = true;
+
+  lock.unlock();
+
+  async_read(*serial, boost::asio::buffer(read_buffer, MSG_LEN),
+             [](const boost::system::error_code &error,
+                std::size_t bytes_transferred) {
+               asyncReadHandler(error, bytes_transferred);
+             });
+
+  std::unique_lock<std::mutex> elk(read_error_mtx);
+
+  if (!read_err)
+    return Error::ReadSuccess;
+  else
+    return Error::AsioReadError;
+}
+
+template <typename msg_type>
+Error read_msg(serial_port *serial, msg_type &buffer, size_t MSG_LEN) {
+
+  uint8_t read_buffer[MSG_LEN];
+  Error err = asyncRead(serial, read_buffer, MSG_LEN);
+
+  if (auto result = cobs_decode(reinterpret_cast<void *>(buffer), MSG_LEN,
+                                reinterpret_cast<const void *>(read_buffer),
+                                sizeof(read_buffer));
+      result.status != COBS_DECODE_OK) {
+    return Error::CobsDecodeError;
+  }
+
+  return err;
+}
 
 void close(serial_port *serial) {
   if (!serial->is_open())
