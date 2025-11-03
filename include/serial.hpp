@@ -19,6 +19,8 @@ Error asyncWrite(serial_port *serial, const uint8_t msg[], size_t MSG_LEN);
 template <typename msgType>
 Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN);
 
+// Error read_msg(serial_port *serial, uint8_t *buffer, size_t MSG_LEN);
+
 void close(serial_port *serial);
 
 serial_port *open(io_context &io, const std::string port,

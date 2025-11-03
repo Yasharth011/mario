@@ -58,9 +58,9 @@ Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN) {
 
   uint8_t buffer[MSG_LEN];
 
-  if (auto result = cobs_encode(reinterpret_cast<void *>(buffer), MSG_LEN,
-                                reinterpret_cast<const void *>(&msg),
-                                sizeof(msgType));
+  if (auto result =
+          cobs_encode(reinterpret_cast<void *>(buffer), MSG_LEN,
+                      reinterpret_cast<const void *>(&msg), sizeof(msgType));
       result.status != COBS_ENCODE_OK) {
     return Error::CobsEncodeError;
   }
@@ -69,6 +69,16 @@ Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN) {
 
   return asyncWrite(serial, buffer, MSG_LEN);
 }
+
+// Error asyncRead(serial_port* serial){
+// 	std::unique_lock<std::mutex> lock(read_mtx);
+// }
+//
+// template<typename msg_type>
+// Error read_msg(serial_port *serial, msg_type *buffer, size_t MSG_LEN) {
+//
+// 	return asyncRead(serial);
+// }
 
 void close(serial_port *serial) {
   if (!serial->is_open())
@@ -176,20 +186,20 @@ struct tarzan_msg {
   uint32_t crc;
 };
 constexpr size_t TARZAN_MSG_LEN = sizeof(tarzan_msg) + 2; // tarzan message len
-							  
-struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z){
-	struct tarzan_msg msg;
 
-	// DiffDrive var
-	struct DiffDriveTwist cmd = {.linear_x=linear_x, .angular_z=angular_z};	
-	
-  	uint32_t crc = serial::crc32_ieee(
-      		(uint8_t *)&msg, sizeof(struct tarzan::tarzan_msg) - sizeof(msg.crc));
+struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z) {
+  struct tarzan_msg msg;
 
-	msg = {.cmd=cmd, .inv={0}, .imu={0}, .crc=crc};
+  // DiffDrive var
+  struct DiffDriveTwist cmd = {.linear_x = linear_x, .angular_z = angular_z};
 
-	// tarzan msg
-	return msg;
+  uint32_t crc = serial::crc32_ieee(
+      (uint8_t *)&msg, sizeof(struct tarzan::tarzan_msg) - sizeof(msg.crc));
+
+  msg = {.cmd = cmd, .inv = {0}, .imu = {0}, .crc = crc};
+
+  // tarzan msg
+  return msg;
 };
 }; // namespace tarzan
 
@@ -206,7 +216,8 @@ int main(int argc, char *argv[]) {
   float angular_z = 0.5;
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
-  std::string err = serial::get_error(serial::write_msg(nucleo, msg, tarzan::TARZAN_MSG_LEN));
+  std::string err =
+      serial::get_error(serial::write_msg(nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
   std::cout << "Error : " << err;
 
