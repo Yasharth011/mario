@@ -186,11 +186,20 @@ const char *get_error(enum Error err) {
   case Error::WriteSuccess:
     return "Serial Write Successfull";
     break;
+  case Error::ReadSuccess:
+    return "Serial Read Successfull";
+    break;
   case Error::CobsEncodeError:
     return "Cobs Encode Error";
     break;
+  case Error::CobsDecodeError:
+    return "Cobs Decode Error";
+    break;
   case Error::AsioWriteError:
     return "Asio Serial Write Error";
+    break;
+  case Error::AsioReadError:
+    return "Asio Serial Read Error";
     break;
   };
   return "Undefined Error";
@@ -198,44 +207,6 @@ const char *get_error(enum Error err) {
 } // namespace serial
 
 namespace tarzan {
-struct inverse_msg {
-  double turn_table;
-  double first_link;
-  double second_link;
-  double pitch;
-  double roll;
-  double x;
-  double y;
-  double z;
-};
-
-struct imu_data {
-  double accel[3];
-  double gyro[3];
-  double mag[3];
-  double gyro_offset[3];
-};
-
-struct imu_msg {
-  struct imu_data baseLink;
-  struct imu_data firstLink;
-  struct imu_data secondLink;
-  struct imu_data differential;
-};
-
-struct DiffDriveTwist {
-  float linear_x;
-  float angular_z;
-};
-
-struct tarzan_msg {
-  struct DiffDriveTwist cmd;
-  struct inverse_msg inv;
-  struct imu_msg imu;
-  enum msg_type type;
-  uint32_t crc;
-};
-constexpr size_t TARZAN_MSG_LEN = sizeof(tarzan_msg) + 2; // tarzan message len
 
 struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z) {
   struct tarzan_msg msg;
@@ -267,7 +238,7 @@ int main(int argc, char *argv[]) {
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
   std::string err =
-      serial::get_error(serial::write_msg(nucleo, msg, tarzan::TARZAN_MSG_LEN));
+      serial::get_error(serial::write_msg(nucleo, msg, tarzan:
 
   std::cout << "Error : " << err;
 

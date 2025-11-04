@@ -2,6 +2,7 @@
 #include <boost/program_options.hpp>
 #include <chrono>
 #include <cstring>
+#include <format>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
@@ -21,8 +22,8 @@
 #include <zmq_addon.hpp>
 
 #include "nav.hpp"
+#include "serial.hpp"
 #include "slam.hpp"
-#include "tarzan.hpp"
 #include "utils.hpp"
 
 namespace po = boost::program_options;
@@ -60,12 +61,15 @@ public:
 int main(int argc, char *argv[]) {
 
   spdlog::set_level(spdlog::level::debug);
+
   // Command Line Options
   po::options_description desc("Allowed Options");
 
   desc.add_options()("help", "produce help message")(
       "serial", po::value<std::string>(), "serial port to nucleo")(
-      "br", po::value<int>(), "baudrate for com with controller");
+      "br", po::value<int>(),
+      "baudrate for com with controller")("rerun_ip", po::value<std::string>(),
+                                          "ip address of remote rerun viewer");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -118,6 +122,7 @@ int main(int argc, char *argv[]) {
   /* path planning vars */
   struct nav::navContext *nav_ctx = new nav::navContext();
   struct mapping::Slam_Pose pose;
+  float grid_resolution = 0.001f;
 
   /* serial com vars */
   const std::string SERIAL_PORT = vm["seiral"].as<std::string>();
@@ -127,6 +132,8 @@ int main(int argc, char *argv[]) {
 
   /* rerun vars */
   const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
+  const std::string rerun_url =
+      std::format("rerun://{}/proxy", vm["rerun_ip"].as<std::string>());
 
   YASMIN_LOG_INFO("Configuring rover peripherals...");
 
@@ -143,7 +150,7 @@ int main(int argc, char *argv[]) {
   /* CONFIGURING NUCLEO COM */
 
   // open nucleo com
-  nucleo = tarzan::open(io, SERIAL_PORT, BAUDRATE);
+  nucleo = serial::open(io, SERIAL_PORT, BAUDRATE);
   YASMIN_LOG_INFO("Succesfull connection to %s\n", SERIAL_PORT.c_str());
 
   /* CONFIGURING STATE MACHINE */
@@ -188,6 +195,9 @@ int main(int argc, char *argv[]) {
     // e.what();
   }
 
+  /* CONFIGURING RERUN */
+
+  rec.connect_grpc(rerun_url).exit_on_failure();
   /* TASK FLOW GRAPH */
 
   // capture task
@@ -310,6 +320,9 @@ int main(int argc, char *argv[]) {
                     auto rotations = current_pose.block<3, 3>(0, 0);
                     spdlog::info("{} {} {}", translations.x(), translations.y(),
                                  translations.z());
+                    pose = {.x = float(translations.x()),
+                            .y = float(translations.y()),
+                            .yaw = slam::yawfromPose(current_pose)};
                   })
                   .name("slam");
 
@@ -341,6 +354,8 @@ int main(int argc, char *argv[]) {
             nav::processPointCloud(raw_points);
 
             nav::updateMaps(nav_ctx, pose, filtered_points);
+
+            nav::log_gridmap(nav_ctx, grid_resolution, rec, pose);
           })
           .name("mapping");
 
@@ -364,7 +379,7 @@ int main(int argc, char *argv[]) {
   // killing objects
   delete slam_handler;
   utils::destroyHandle(rs_ptr);
-  tarzan::close(nucleo);
+  serial::close(nucleo);
 
   return 0;
 }
