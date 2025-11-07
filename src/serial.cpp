@@ -238,7 +238,7 @@ int main(int argc, char *argv[]) {
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
   std::string err =
-      serial::get_error(serial::write_msg(nucleo, msg, tarzan:
+      serial::get_error(serial::write_msg(nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
   std::cout << "Error : " << err;
 
