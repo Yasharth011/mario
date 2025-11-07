@@ -1,12 +1,14 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <format>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <rerun.hpp>
 #include <spdlog/spdlog.h>
@@ -32,13 +34,13 @@ class Navigate : public yasmin::State {
 
 public:
   boost::asio::serial_port *nucleo;
-
+  float linear_x;
+  float angular_z;
   Navigate(boost::asio::serial_port *serial)
       : yasmin::State({"IDLE"}), nucleo(serial) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-
     return "IDLE";
   }
 };
@@ -53,6 +55,11 @@ public:
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+
+    // write stop command to nucleo
+    tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(0.0, 0.0);
+    std::string err = serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+        nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
     return "NAVIGATE";
   }
@@ -122,11 +129,14 @@ int main(int argc, char *argv[]) {
   /* path planning vars */
   struct nav::navContext *nav_ctx = new nav::navContext();
   struct mapping::Slam_Pose pose;
+  std::mutex poseMtx;
+  bool poseAvail = false;
+  std::condition_variable poseCV;
   float grid_resolution = 0.001f;
 
   /* serial com vars */
-  const std::string SERIAL_PORT = vm["seiral"].as<std::string>();
-  const int BAUDRATE = vm["br"].as<int>();
+  std::string SERIAL_PORT = vm["serial"].as<std::string>();
+  int BAUDRATE = vm["br"].as<int>();
   boost::asio::io_context io;
   boost::asio::serial_port *nucleo;
 
@@ -320,9 +330,13 @@ int main(int argc, char *argv[]) {
                     auto rotations = current_pose.block<3, 3>(0, 0);
                     spdlog::info("{} {} {}", translations.x(), translations.y(),
                                  translations.z());
+                    // lock pose and write
+                    std::lock_guard<std::mutex> lock(poseMtx);
                     pose = {.x = float(translations.x()),
                             .y = float(translations.y()),
                             .yaw = slam::yawfromPose(current_pose)};
+                    poseAvail = true;
+                    poseCV.notify_one();
                   })
                   .name("slam");
 
@@ -353,9 +367,16 @@ int main(int argc, char *argv[]) {
 
             nav::processPointCloud(raw_points);
 
-            nav::updateMaps(nav_ctx, pose, filtered_points);
+            std::unique_lock<std::mutex> lock(poseMtx);
 
+            poseCV.wait(lock, [poseAvail] { return poseAvail; });
+
+            poseAvail = false;
+
+            nav::updateMaps(nav_ctx, pose, filtered_points);
             nav::log_gridmap(nav_ctx, grid_resolution, rec, pose);
+
+            lock.unlock();
           })
           .name("mapping");
 
