@@ -1,4 +1,3 @@
-#include <cobs.h>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -58,23 +57,6 @@ Error asyncWrite(serial_port *serial, const uint8_t msg[], size_t MSG_LEN) {
     return Error::AsioWriteError;
 }
 
-template <typename msgType>
-Error write_msg(serial_port *serial, const msgType &msg, size_t MSG_LEN) {
-
-  uint8_t buffer[MSG_LEN];
-
-  if (auto result =
-          cobs_encode(reinterpret_cast<void *>(buffer), MSG_LEN,
-                      reinterpret_cast<const void *>(&msg), sizeof(msgType));
-      result.status != COBS_ENCODE_OK) {
-    return Error::CobsEncodeError;
-  }
-
-  buffer[MSG_LEN - 1] = 0x00;
-
-  return asyncWrite(serial, buffer, MSG_LEN);
-}
-
 void asyncReadHandler(const boost::system::error_code &error,
                       std::size_t bytes_transferred) {
   std::unique_lock<std::mutex> elk(read_error_mtx);
@@ -112,22 +94,6 @@ Error asyncRead(serial_port *serial, uint8_t *read_buffer, size_t MSG_LEN) {
     return Error::ReadSuccess;
   else
     return Error::AsioReadError;
-}
-
-template <typename msg_type>
-Error read_msg(serial_port *serial, msg_type &buffer, size_t MSG_LEN) {
-
-  uint8_t read_buffer[MSG_LEN];
-  Error err = asyncRead(serial, read_buffer, MSG_LEN);
-
-  if (auto result = cobs_decode(reinterpret_cast<void *>(buffer), MSG_LEN,
-                                reinterpret_cast<const void *>(read_buffer),
-                                sizeof(read_buffer));
-      result.status != COBS_DECODE_OK) {
-    return Error::CobsDecodeError;
-  }
-
-  return err;
 }
 
 void close(serial_port *serial) {
@@ -238,7 +204,8 @@ int main(int argc, char *argv[]) {
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
   std::string err =
-      serial::get_error(serial::write_msg(nucleo, msg, tarzan::TARZAN_MSG_LEN));
+      serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+          nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
   std::cout << "Error : " << err;
 
