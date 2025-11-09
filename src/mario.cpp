@@ -58,8 +58,9 @@ public:
 
     // write stop command to nucleo
     tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(0.0, 0.0);
-    std::string err = serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
-        nucleo, msg, tarzan::TARZAN_MSG_LEN));
+    std::string err =
+        serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+            nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
     return "NAVIGATE";
   }
@@ -206,11 +207,9 @@ int main(int argc, char *argv[]) {
   }
 
   /* CONFIGURING RERUN */
-
   rec.connect_grpc(rerun_url).exit_on_failure();
-  /* TASK FLOW GRAPH */
 
-  // capture task
+  /* TASK FLOW GRAPH */
   auto capture_frame =
       taskflow
           .emplace([&]() {
@@ -238,7 +237,7 @@ int main(int argc, char *argv[]) {
 
               // get raw point cloud data
               rs2::points points = rs_ptr->pc.calculate(depthFrame);
-              std::vector<Eigen::Vector3f> raw_points;
+              std::vector<float> raw_points;
               raw_points.reserve(points.size());
               const rs2::vertex *vertices = points.get_vertices();
               for (size_t i = 0; i < points.size(); i++) {
@@ -249,7 +248,9 @@ int main(int argc, char *argv[]) {
                   Eigen::Matrix<double, 4, 1> vertices_in_ned =
                       utils::camera_to_ned_transform * vertices_vector;
 
-                  raw_points.push_back(vertices_in_ned.head<3>().cast<float>());
+                  raw_points.push_back(vertices_in_ned(0, 0));
+                  raw_points.push_back(vertices_in_ned(1, 0));
+                  raw_points.push_back(vertices_in_ned(2, 0));
                 }
               }
 
@@ -281,10 +282,8 @@ int main(int argc, char *argv[]) {
               });
               if (!ret) { // error publishing
               }
-
               ret = utils::publish_msg(pub, topic_pointcloud, [raw_points]() {
-                zmq::message_t msg(raw_points.size());
-                memcpy(msg.data(), raw_points.data(), raw_points.size());
+                zmq::message_t msg(raw_points);
                 return msg;
               });
               if (!ret) { // error publishing
@@ -296,7 +295,6 @@ int main(int argc, char *argv[]) {
   // slam task
   auto slam = taskflow
                   .emplace([&]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     std::vector<zmq::message_t> colorFrame_msg;
                     std::vector<zmq::message_t> depthFrame_msg;
                     std::vector<zmq::message_t> timestamp_msg;
@@ -328,15 +326,16 @@ int main(int argc, char *argv[]) {
                     current_pose = utils::camera_to_ned_transform * res;
                     auto translations = current_pose.col(3);
                     auto rotations = current_pose.block<3, 3>(0, 0);
-                    spdlog::info("{} {} {}", translations.x(), translations.y(),
-                                 translations.z());
+                    spdlog::info("{} {} {}", translations.x(),
+                                 translations.y(), translations.z());
+
                     // lock pose and write
-                    std::lock_guard<std::mutex> lock(poseMtx);
-                    pose = {.x = float(translations.x()),
-                            .y = float(translations.y()),
-                            .yaw = slam::yawfromPose(current_pose)};
-                    poseAvail = true;
-                    poseCV.notify_one();
+                    // std::lock_guard<std::mutex> lock(poseMtx);
+                    // pose = {.x = float(translations.x()),
+                    //         .y = float(translations.y()),
+                    //         .yaw = slam::yawfromPose(current_pose)};
+                    // poseAvail = true;
+                    // poseCV.notify_one();
                   })
                   .name("slam");
 
@@ -344,39 +343,37 @@ int main(int argc, char *argv[]) {
   auto mapping =
       taskflow
           .emplace([&]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             std::vector<zmq::message_t> pointcloud_msg;
 
             zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
                 mapping_sub, std::back_inserter(pointcloud_msg));
 
-            const float *points_buffer =
-                static_cast<const float *>(pointcloud_msg[1].data());
-            size_t points_buffer_size = pointcloud_msg[1].size();
+            std::vector<float> points_buffer;
+            points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
+            std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
+                        pointcloud_msg[1].size());
 
             std::vector<Eigen::Vector3f> raw_points;
 
-            for (size_t i = 0; i < points_buffer_size; i++) {
-              raw_points.push_back(Eigen::Vector3f(points_buffer[i * 3 + 0],
-                                                   points_buffer[i * 3 + 1],
-                                                   points_buffer[i * 3 + 2]));
+            for (auto i = 0; i < points_buffer.size(); i += 3) {
+              raw_points.push_back(Eigen::Vector3f(
+                  points_buffer[i], points_buffer[i + 1], points_buffer[2]));
             }
 
             std::vector<Eigen::Vector3f> filtered_points =
                 nav::processPointCloud(raw_points);
+            std::cout << "running\n";
 
-            nav::processPointCloud(raw_points);
-
-            std::unique_lock<std::mutex> lock(poseMtx);
-
-            poseCV.wait(lock, [poseAvail] { return poseAvail; });
-
-            poseAvail = false;
-
-            nav::updateMaps(nav_ctx, pose, filtered_points);
-            nav::log_gridmap(nav_ctx, grid_resolution, rec, pose);
-
-            lock.unlock();
+            // std::unique_lock<std::mutex> lock(poseMtx);
+            //
+            // poseCV.wait(lock, [poseAvail] { return poseAvail; });
+            //
+            // poseAvail = false;
+            //
+            // nav::updateMaps(nav_ctx, pose, filtered_points);
+            // nav::log_gridmap(nav_ctx, grid_resolution, rec, pose);
+            //
+            // lock.unlock();
           })
           .name("mapping");
 
@@ -388,13 +385,18 @@ int main(int argc, char *argv[]) {
   //   }
 
   // define task graph
-  // capture_frame.precede(slam);
+  capture_frame.precede(slam);
+  capture_frame.precede(mapping);
   // slam.precede(mapping);
   // mapping.precede(capture_frame);
   // mapping.precede(path_planning);
 
   while (true) {
-    executor.run(taskflow).wait();
+    try {
+      executor.run(taskflow).wait();
+    } catch (const std::exception &e) {
+      std::cout << "Exception: {}" << e.what();
+    }
   }
 
   // killing objects
