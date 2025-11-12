@@ -13,12 +13,12 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
   pcl::PassThrough<pcl::PointXYZ> passthrough;
   passthrough.setInputCloud(pcl_cloud);
   passthrough.setFilterFieldName("z");
-  passthrough.setFilterLimits(0.5, 0.5);
+  passthrough.setFilterLimits(0.2, 4.0);
   passthrough.filter(*pcl_cloud);
 
   pcl::VoxelGrid<pcl::PointXYZ> voxel;
   voxel.setInputCloud(pcl_cloud);
-  voxel.setLeafSize(0.05f, 0.05f, 0.05f);
+  voxel.setLeafSize(0.02f, 0.02f, 0.02f);
   voxel.filter(*pcl_cloud);
 
   std::vector<Eigen::Vector3f> filtered_points;
@@ -31,14 +31,16 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
 }
 
 void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
-                const std::vector<Eigen::Vector3f> &points) {
-  mapping::create_gridmap(ctx->gridmap, points, pose);
+                const std::vector<Eigen::Vector3f> &points,
+                const rerun::RecordingStream &rec) {
+  mapping::create_gridmap(ctx->gridmap, points, pose, grid_resolution, height, proxfactor);
 
   quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree),
                                           &(ctx->midQuadtree),
                                           &(ctx->highQuadtree), points, pose);
 
   if (ctx->gridmap.occupancy_grid.size() >= batch_threshold) {
+    nav::log_gridmap(ctx, grid_resolution, rec, pose);
     batch_threshold += ctx->gridmap.occupancy_grid.size();
   }
 }

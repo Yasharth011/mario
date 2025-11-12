@@ -15,6 +15,9 @@
 namespace nav {
 
 inline int batch_threshold = 1;
+inline float grid_resolution = 0.02f;
+inline float height = 1.0f; 
+inline float proxfactor = 0.2f;
 inline mapping::Point center;
 inline float rootSize;
 
@@ -45,7 +48,8 @@ std::vector<Eigen::Vector3f>
 processPointCloud(std::vector<Eigen::Vector3f> raw_points);
 
 void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
-                const std::vector<Eigen::Vector3f> &points);
+                const std::vector<Eigen::Vector3f> &points,
+                const rerun::RecordingStream &rec);
 
 std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
 
