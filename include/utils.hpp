@@ -1,11 +1,12 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
+#include <Eigen/Dense>
+#include <condition_variable>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
-#include <Eigen/Dense>
 #include <zmq.hpp>
 
 namespace utils {
@@ -45,5 +46,78 @@ const char *get_error(enum Error err);
 
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
                 std::function<zmq::message_t()> get_encoded_msg);
+
+template <class T> class SafeQueue {
+
+  std::queue<T> q;
+
+  std::mutex mtx;
+  std::condition_variable cv;
+
+  std::condition_variable sync_wait;
+  bool finish_processing = false;
+  int sync_counter = 0;
+
+  void DecreaseSyncCounter() {
+    if (--sync_counter == 0) {
+      sync_wait.notify_one();
+    }
+  }
+
+public:
+  typedef typename std::queue<T>::size_type size_type;
+  SafeQueue() {}
+  ~SafeQueue() { finish(); }
+
+  void produce(T &&item) {
+    std::lock_guard<std::mutex> lock(mtx);
+    q.push(std::move(item));
+    cv.notify_one();
+  }
+
+  size_type size() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return q.size();
+  }
+
+  [[nodiscard]]
+  bool consume(T &item) {
+    std::lock_guard<std::mutex> lock(mtx);
+    if (q.empty()) {
+      return false;
+    }
+    item = std::move(q.front());
+    q.pop();
+    return true;
+  }
+
+  [[nodiscard]]
+  bool consumeSync(T &item) {
+    std::unique_lock<std::mutex> lock(mtx);
+    sync_counter++;
+
+    cv.wait(lock, [&] { return !q.empty() || finish_processing; });
+
+    if (q.empty()) {
+      DecreaseSyncCounter();
+      return false;
+    }
+
+    item = std::move(q.front());
+    q.pop();
+    DecreaseSyncCounter();
+
+    return true;
+  }
+
+  void finish() {
+
+    std::unique_lock<std::mutex> lock(mtx);
+    finish_processing = true;
+    cv.notify_all();
+    sync_wait.wait(lock, [&]() { return sync_counter == 0; });
+    finish_processing = false;
+  }
+};
 } // namespace utils
 #endif
