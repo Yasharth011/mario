@@ -8,9 +8,12 @@
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
+#include <mapping.h>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <rerun.hpp>
+#include <rerun/archetypes/text_log.hpp>
+#include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <sys/types.h>
@@ -68,7 +71,7 @@ public:
 
 int main(int argc, char *argv[]) {
 
-  spdlog::set_level(spdlog::level::debug);
+  spdlog::set_level(spdlog::level::info);
 
   // Command Line Options
   po::options_description desc("Allowed Options");
@@ -129,11 +132,10 @@ int main(int argc, char *argv[]) {
 
   /* path planning vars */
   struct nav::navContext *nav_ctx = new nav::navContext();
-  struct mapping::Slam_Pose pose;
+  utils::SafeQueue<struct mapping::Slam_Pose> poseQueue;
   std::mutex poseMtx;
   bool poseAvail = false;
   std::condition_variable poseCV;
-  float grid_resolution = 0.001f;
 
   /* serial com vars */
   std::string SERIAL_PORT = vm["serial"].as<std::string>();
@@ -144,28 +146,27 @@ int main(int argc, char *argv[]) {
   /* rerun vars */
   const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
   const std::string rerun_url =
-      std::format("rerun://{}/proxy", vm["rerun_ip"].as<std::string>());
+      std::format("rerun+http://{}/proxy", vm["rerun_ip"].as<std::string>());
 
-  YASMIN_LOG_INFO("Configuring rover peripherals...");
+  rec.log("Sys Logs", rerun::TextLog("Configuring rover peripherals"));
+  spdlog::info("Configuring Rover Peripherals");
 
   /* CONFIGURING REALSENSE */
-
   // init realsense handler
   rs_ptr = utils::setupRealsense(realsense_config);
   if (not rs_ptr) {
-    // Could not setup Realsense
+    spdlog::error("Unable to setup Realsense");
     return -1;
   }
+  spdlog::info("Successfull setup of Realsense");
   // Successfull setup of realsense
 
   /* CONFIGURING NUCLEO COM */
-
   // open nucleo com
   nucleo = serial::open(io, SERIAL_PORT, BAUDRATE);
-  YASMIN_LOG_INFO("Succesfull connection to %s\n", SERIAL_PORT.c_str());
+  spdlog::info(std::format("Succesfull connection to {}", SERIAL_PORT.c_str()));
 
   /* CONFIGURING STATE MACHINE */
-
   // Add states to the state machine
   sm->add_state("Navigate", std::make_shared<Navigate>(nucleo),
                 {{"IDLE", "Idle"}});
@@ -177,13 +178,13 @@ int main(int argc, char *argv[]) {
   sm->set_start_state("Idle");
 
   /* CONFIGURING ZMQ SOCKETS */
-
   // binding publisher
   try {
     pub.bind("inproc://realsense");
   } catch (zmq::error_t &e) {
-    // e.what();
+    spdlog::error(e.what());
   }
+
   // sleep for lazy subs
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
@@ -195,7 +196,7 @@ int main(int argc, char *argv[]) {
     slam_sub.set(zmq::sockopt::subscribe, topic_depth);
     slam_sub.set(zmq::sockopt::subscribe, topic_timestamp);
   } catch (zmq::error_t &e) {
-    // e.what();
+    spdlog::error(e.what());
   }
 
   try {
@@ -203,7 +204,7 @@ int main(int argc, char *argv[]) {
 
     mapping_sub.set(zmq::sockopt::subscribe, topic_pointcloud);
   } catch (zmq::error_t &e) {
-    // e.what();
+    spdlog::error(e.what());
   }
 
   /* CONFIGURING RERUN */
@@ -237,20 +238,16 @@ int main(int argc, char *argv[]) {
 
               // get raw point cloud data
               rs2::points points = rs_ptr->pc.calculate(depthFrame);
-              std::vector<float> raw_points;
-              raw_points.reserve(points.size());
               const rs2::vertex *vertices = points.get_vertices();
+
+              std::vector<float> vertices_vector;
+              vertices_vector.reserve(points.size());
+
               for (size_t i = 0; i < points.size(); i++) {
                 if (vertices[i].z) {
-                  Eigen::Matrix<double, 4, 1> vertices_vector{
-                      {vertices[i].x}, {vertices[i].y}, {vertices[i].z}, {1.0}};
-
-                  Eigen::Matrix<double, 4, 1> vertices_in_ned =
-                      utils::camera_to_ned_transform * vertices_vector;
-
-                  raw_points.push_back(vertices_in_ned(0, 0));
-                  raw_points.push_back(vertices_in_ned(1, 0));
-                  raw_points.push_back(vertices_in_ned(2, 0));
+                  vertices_vector.push_back(vertices[i].x);
+                  vertices_vector.push_back(vertices[i].y);
+                  vertices_vector.push_back(vertices[i].z);
                 }
               }
 
@@ -261,8 +258,8 @@ int main(int argc, char *argv[]) {
                     memcpy(msg.data(), raw_colorFrame, colorFrame_len);
                     return msg;
                   });
-              if (!ret) { // error publishing
-              }
+              if (!ret)
+                spdlog::error("Error Publishing: topic_color");
 
               ret = utils::publish_msg(
                   pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
@@ -270,8 +267,8 @@ int main(int argc, char *argv[]) {
                     memcpy(msg.data(), raw_depthFrame, depthFrame_len);
                     return msg;
                   });
-              if (!ret) { // error publishing
-              }
+              if (!ret)
+                spdlog::error("Error Publishing: topic_depth");
 
               ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
                 std::string timestamp_string = std::to_string(timestamp);
@@ -280,14 +277,16 @@ int main(int argc, char *argv[]) {
                        timestamp_string.size());
                 return msg;
               });
-              if (!ret) { // error publishing
-              }
-              ret = utils::publish_msg(pub, topic_pointcloud, [raw_points]() {
-                zmq::message_t msg(raw_points);
-                return msg;
-              });
-              if (!ret) { // error publishing
-              }
+              if (!ret)
+                spdlog::error("Error Publishing: topic_timestamp");
+
+              ret = utils::publish_msg(pub, topic_pointcloud,
+                                       [vertices_vector]() {
+                                         zmq::message_t msg(vertices_vector);
+                                         return msg;
+                                       });
+              if (!ret)
+                spdlog::error("Error Publishing: topic_pointcloud");
             }
           })
           .name("capture_frame");
@@ -326,16 +325,21 @@ int main(int argc, char *argv[]) {
                     current_pose = utils::camera_to_ned_transform * res;
                     auto translations = current_pose.col(3);
                     auto rotations = current_pose.block<3, 3>(0, 0);
-                    spdlog::info("{} {} {}", translations.x(),
-                                 translations.y(), translations.z());
+
+                    // log to rerun
+                    std::string coordinates =
+                        std::format("x:{} y:{} z:{}", translations.x(),
+                                    translations.y(), translations.z());
+                    rec.log("RoverPose", rerun::TextLog(coordinates));
 
                     // lock pose and write
-                    // std::lock_guard<std::mutex> lock(poseMtx);
-                    // pose = {.x = float(translations.x()),
-                    //         .y = float(translations.y()),
-                    //         .yaw = slam::yawfromPose(current_pose)};
-                    // poseAvail = true;
-                    // poseCV.notify_one();
+                    struct mapping::Slam_Pose pose = {
+                        .x = float(translations.x()),
+                        .y = float(translations.y()),
+                        .z = float(translations.z()),
+                        .yaw = slam::yawfromPose(current_pose)};
+                    // insert slam pose to queue
+                    poseQueue.produce(std::move(pose));
                   })
                   .name("slam");
 
@@ -353,27 +357,35 @@ int main(int argc, char *argv[]) {
             std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
                         pointcloud_msg[1].size());
 
-            std::vector<Eigen::Vector3f> raw_points;
+            struct mapping::Slam_Pose pose;
+
+            if (!poseQueue.consume(pose)) {
+		spdlog::error("Unable to fetch data from Pose Queue");
+	    }
+
+            Eigen::Matrix3f R; // rotation matrix
+            R = Eigen::AngleAxisf(pose.yaw, Eigen::Vector3f::UnitZ());
+            // translation matrix
+            Eigen::Vector3f T(pose.x, pose.y, pose.z);
+
+            std::vector<Eigen::Vector3f> transformed_points;
 
             for (auto i = 0; i < points_buffer.size(); i += 3) {
-              raw_points.push_back(Eigen::Vector3f(
-                  points_buffer[i], points_buffer[i + 1], points_buffer[2]));
+              float dx = points_buffer[i + 2];  // forward
+              float dy = -points_buffer[i];     // left-right
+              float dz = -points_buffer[i + 1]; // up-down inversion
+
+              Eigen::Vector3f p_cam(dx, dy, dz);
+
+              // Applying rotation and translation together
+              Eigen::Vector3f p_world = R * p_cam + T;
+              transformed_points.push_back(p_world);
             }
 
             std::vector<Eigen::Vector3f> filtered_points =
-                nav::processPointCloud(raw_points);
-            std::cout << "running\n";
+                nav::processPointCloud(transformed_points);
 
-            // std::unique_lock<std::mutex> lock(poseMtx);
-            //
-            // poseCV.wait(lock, [poseAvail] { return poseAvail; });
-            //
-            // poseAvail = false;
-            //
-            // nav::updateMaps(nav_ctx, pose, filtered_points);
-            // nav::log_gridmap(nav_ctx, grid_resolution, rec, pose);
-            //
-            // lock.unlock();
+            nav::updateMaps(nav_ctx, pose, filtered_points, rec);
           })
           .name("mapping");
 
@@ -387,9 +399,6 @@ int main(int argc, char *argv[]) {
   // define task graph
   capture_frame.precede(slam);
   capture_frame.precede(mapping);
-  // slam.precede(mapping);
-  // mapping.precede(capture_frame);
-  // mapping.precede(path_planning);
 
   while (true) {
     try {
