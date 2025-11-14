@@ -2,6 +2,7 @@
 #include <mapping.h>
 #include <pathplanning.h>
 #include <quadtree.h>
+#include <sbpl/headers.h>
 
 namespace nav {
 
@@ -33,7 +34,8 @@ processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
 void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
                 const std::vector<Eigen::Vector3f> &points,
                 const rerun::RecordingStream &rec) {
-  mapping::create_gridmap(ctx->gridmap, points, pose, grid_resolution, height, proxfactor);
+  mapping::create_gridmap(ctx->gridmap, points, pose, grid_resolution, height,
+                          proxfactor);
 
   quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree),
                                           &(ctx->midQuadtree),
@@ -58,7 +60,7 @@ std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path) {
   return pruned_path;
 }
 
-bool findPath(struct navContext *ctx) {
+bool findPath(struct navContext *ctx, std::vector<planning::Node> dense_path) {
   std::vector<planning::Node> sparse_path =
       astarsparse(ctx->gridmap, ctx->current_start, ctx->current_goal);
 
@@ -77,11 +79,78 @@ bool findPath(struct navContext *ctx) {
       if (!segment.empty()) {
         ctx->dense_path.insert(ctx->dense_path.end(), segment.begin() + 1,
                                segment.end());
-      } else {
       }
     }
   }
   return !ctx->dense_path.empty();
+}
+
+bool findCurrentGoal(nav::navContext *ctx) {
+
+  planning::Node best_node = ctx->current_start;
+
+  double best_score = std::numeric_limits<double>::max();
+  bool found = false;
+  int margin = 6;
+
+  for (int x = ctx->current_start.x - margin;
+       x <= ctx->current_start.x + margin; ++x) {
+    for (int y = ctx->current_start.y; y <= ctx->current_start.y + margin;
+         ++y) {
+      std::pair<int, int> cell = {x, y};
+      planning::Node candidate(x, y);
+
+      if (x < ctx->gridmap.min_x || x > ctx->gridmap.max_x ||
+          y < ctx->gridmap.min_y || y > ctx->gridmap.max_y)
+        continue;
+      if (ctx->gridmap.occupancy_grid.count(cell) ||
+          ctx->visited_nodes.count(cell) || ctx->failed_goals.count(cell))
+        continue;
+      if (std::find(ctx->recent_goals.begin(), ctx->recent_goals.end(),
+                    candidate) != ctx->recent_goals.end())
+        continue;
+
+      double angle_to_node =
+          atan2(y - ctx->current_start.y, x - ctx->current_start.x);
+      double angle_to_goal = atan2(ctx->final_goal.y - ctx->current_start.y,
+                                   ctx->final_goal.x - ctx->current_start.x);
+      double angle_diff = fabs(angle_to_node - angle_to_goal);
+      if (angle_diff > M_PI)
+        angle_diff = 2 * M_PI - angle_diff;
+      if (angle_diff > M_PI / 3)
+        continue; // only the starting arc in front of the rover.
+
+      double dist_from_start =
+          planning::heuristic(ctx->current_start.x, ctx->current_start.y, x, y);
+      if (dist_from_start < 1.0)
+        continue;
+
+      double obstacle_cost = ctx->gridmap.occupancy_grid.count(cell)
+                                 ? ctx->gridmap.occupancy_grid.at(cell).cost
+                                 : 0.0;
+      double alignment_penalty = angle_diff * 2.0;
+      double score =
+          dist_from_start +
+          planning::heuristic(x, y, ctx->final_goal.x, ctx->final_goal.y) +
+          obstacle_cost + alignment_penalty;
+
+      if (score < best_score) {
+        best_score = score;
+        best_node = candidate;
+        found = true;
+      }
+    }
+  }
+
+  if (found) {
+    ctx->recent_goals.push_back(best_node);
+    if (ctx->recent_goals.size() > 10)
+      ctx->recent_goals.pop_front();
+    ctx->current_goal = best_node;
+    return true;
+  }
+  ctx->current_goal = ctx->current_start;
+  return false;
 }
 
 void log_gridmap(struct navContext *ctx, float grid_resolution,

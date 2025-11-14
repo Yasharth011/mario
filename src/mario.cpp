@@ -33,6 +33,9 @@
 
 namespace po = boost::program_options;
 
+// define blackboard keys
+const std::string path_planning_flag = "plan_path";
+
 class Navigate : public yasmin::State {
 
 public:
@@ -52,9 +55,10 @@ class Idle : public yasmin::State {
 
 public:
   boost::asio::serial_port *nucleo;
+  struct nav::navContext *nav_ctx;
 
-  Idle(boost::asio::serial_port *serial)
-      : yasmin::State({"NAVIGATE"}), nucleo(serial) {};
+  Idle(boost::asio::serial_port *serial, nav::navContext *ctx)
+      : yasmin::State({"NAVIGATE", "IDLE"}), nucleo(serial), nav_ctx(ctx) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -65,7 +69,18 @@ public:
         serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
             nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
-    return "NAVIGATE";
+    if (blackboard->get<bool>(path_planning_flag)) {
+      if (!nav::findCurrentGoal(nav_ctx))
+        return "EXPLORE";
+
+      std::vector<planning::Node> dense_path;
+      if (findPath(nav_ctx, dense_path))
+        return "NAVIGATE";
+
+      // if neither goal or path found create new map 
+      blackboard->set<bool>(path_planning_flag, false);
+    }
+    return "IDLE";
   }
 };
 
@@ -110,10 +125,6 @@ int main(int argc, char *argv[]) {
       std::initializer_list<std::string>{"IDLE"}); // state machine obj
   auto blackboard =
       std::make_shared<yasmin::blackboard::Blackboard>(); // init blackboard
-  // set blacboard variables
-  // blackboard->set<float>("right_arrow", 0.0);
-  // blackboard->set<float>("left_arrow", 0.0);
-  // blackboard->set<float>("cone", 0.0);
 
   /* realsense vars */
   struct utils::rs_config realsense_config{.height = 640,
@@ -136,6 +147,8 @@ int main(int argc, char *argv[]) {
   std::mutex poseMtx;
   bool poseAvail = false;
   std::condition_variable poseCV;
+  int counter = 0;
+  int adder = 0;
 
   /* serial com vars */
   std::string SERIAL_PORT = vm["serial"].as<std::string>();
@@ -171,11 +184,13 @@ int main(int argc, char *argv[]) {
   sm->add_state("Navigate", std::make_shared<Navigate>(nucleo),
                 {{"IDLE", "Idle"}});
 
-  sm->add_state("Idle", std::make_shared<Idle>(nucleo),
-                {{"NAVIGATE", "Navigate"}});
+  sm->add_state("Idle", std::make_shared<Idle>(nucleo, nav_ctx),
+                {{"NAVIGATE", "Navigate"}, {"IDLE", "Idle"}});
 
   // set start of FSM as IDLE STATE
   sm->set_start_state("Idle");
+  // set blacboard variables
+  blackboard->set<bool>(path_planning_flag, false);
 
   /* CONFIGURING ZMQ SOCKETS */
   // binding publisher
@@ -347,6 +362,9 @@ int main(int argc, char *argv[]) {
   auto mapping =
       taskflow
           .emplace([&]() {
+	    // if path_planning flag do not map
+	    if(blackboard->get<bool>(path_planning_flag)) return; 
+
             std::vector<zmq::message_t> pointcloud_msg;
 
             zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
@@ -360,8 +378,8 @@ int main(int argc, char *argv[]) {
             struct mapping::Slam_Pose pose;
 
             if (!poseQueue.consume(pose)) {
-		spdlog::error("Unable to fetch data from Pose Queue");
-	    }
+              spdlog::error("Unable to fetch data from Pose Queue");
+            }
 
             Eigen::Matrix3f R; // rotation matrix
             R = Eigen::AngleAxisf(pose.yaw, Eigen::Vector3f::UnitZ());
@@ -386,6 +404,12 @@ int main(int argc, char *argv[]) {
                 nav::processPointCloud(transformed_points);
 
             nav::updateMaps(nav_ctx, pose, filtered_points, rec);
+            counter = nav_ctx->gridmap.occupancy_grid.size() - adder;
+            if (counter >= nav::map_limit) {
+              blackboard->set<bool>(path_planning_flag, true);
+              adder += nav::map_limit; // Increment adder so the condition
+                                       // isn't met again immediately
+            }
           })
           .name("mapping");
 
