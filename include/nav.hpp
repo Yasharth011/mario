@@ -9,7 +9,6 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <sbpl/headers.h>
 #include <quadtree.h>
 #include <rerun/recording_stream.hpp>
 
@@ -38,13 +37,14 @@ struct navContext {
   std::set<std::pair<int, int>> failed_goals;
   std::deque<planning::Node> recent_goals;
   std::vector<planning::Node> dense_path;
+  std::vector<planning::Node> pruned_path;
 
   navContext()
       : gridmap(), lowQuadtree(center, rootSize, 1),
         midQuadtree(center, rootSize, 1), highQuadtree(center, rootSize, 1),
         start(0, 0), goal(0, 0), current_start(0, 0), current_goal(0, 0),
         final_goal(0, 0), full_path(), visited_nodes(), failed_goals(),
-        recent_goals(), dense_path() {}
+        recent_goals(), dense_path(), pruned_path() {}
 };
 
 std::vector<Eigen::Vector3f>
@@ -59,6 +59,8 @@ std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
 bool findCurrentGoal(nav::navContext *ctx);
 
 bool findPath(navContext *ctx, std::vector<planning::Node> &dense_path);
+
+std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
 
 void log_gridmap(struct navContext *ctx, float grid_resolution,
                  const rerun::RecordingStream &rec,

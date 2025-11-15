@@ -2,7 +2,6 @@
 #include <mapping.h>
 #include <pathplanning.h>
 #include <quadtree.h>
-#include <sbpl/headers.h>
 
 namespace nav {
 
