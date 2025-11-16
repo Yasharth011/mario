@@ -1,23 +1,16 @@
-#include <cmath>
 #include "pid.hpp"
+#include <cmath>
 
 namespace control {
-struct Pid {
-  struct Gains {
-    double p, i, d, i_max, i_min;
-  } *gains;
-  struct Errors {
-    double p_error_last, p_error, i_error, d_error, cmd, error_dot;
-  } *errors;
-};
-struct Pid *initPid(double p, double i, double d, double i_max, double i_min) {
-  auto pid = new struct Pid();
+
+struct Pid *initPid(double p, double i, double d) {
+  struct Pid *pid = new struct Pid();
+  pid->gains = new struct Pid::Gains(); 
+  pid->errors = new struct Pid::Errors();
 
   pid->gains->p = p;
   pid->gains->d = d;
   pid->gains->i = i;
-  pid->gains->i_max = i_max;
-  pid->gains->i_min = i_min;
 
   pid->errors->p_error_last = 0;
   pid->errors->p_error = 0;
@@ -25,6 +18,8 @@ struct Pid *initPid(double p, double i, double d, double i_max, double i_min) {
   pid->errors->d_error = 0;
   pid->errors->cmd = 0;
   pid->errors->error_dot = 0;
+
+  pid->last_time = 0;
 
   return pid;
 }
@@ -83,4 +78,3 @@ double computeCommand(struct Pid *pid, double error, uint64_t dt) {
   return computeCommandErrorDot(pid, error, pid->errors->error_dot, dt);
 }
 } // namespace control
-

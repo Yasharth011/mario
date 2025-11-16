@@ -1,10 +1,20 @@
 #pragma once
 #include <cinttypes>
+#include <chrono>
+#include <cstdint>
 
 namespace control {
-struct Pid;
+struct Pid {
+  struct Gains {
+    double p, i, d;
+  } *gains;
+  struct Errors {
+    double p_error_last, p_error, i_error, d_error, cmd, error_dot;
+  } *errors;
+  uint64_t last_time;
+};
 
-struct Pid *initPid(double p, double i, double d, double i_max, double i_min);
+struct Pid *initPid(double p, double i, double d);
 
 void resetPid(struct Pid *pid);
 
