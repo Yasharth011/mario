@@ -308,6 +308,8 @@ int main(int argc, char *argv[]) {
   sm->set_start_state("Idle");
   // set blacboard variables
   blackboard->set<bool>(path_planning_flag, false);
+  // redirect yasmin logger to spdlogger
+  yasmin::set_loggers(utils::yasmin_to_spdlog);
 
   /* CONFIGURING ZMQ SOCKETS */
   // binding publisher
@@ -343,7 +345,6 @@ int main(int argc, char *argv[]) {
 
   /* CONFIGURING RERUN */
   rec.connect_grpc(rerun_url).exit_on_failure();
-
 
   /* TASK FLOW GRAPH */
   auto capture_frame =
@@ -471,7 +472,7 @@ int main(int argc, char *argv[]) {
                                     translations.y(), translations.z());
                     // spdlog::info(coordinates);
                     rec.log("RoverPose", rerun::TextLog(coordinates));
-
+  
                     // lock pose and write
                     struct mapping::Slam_Pose pose = {
                         .x = float(translations.x()),

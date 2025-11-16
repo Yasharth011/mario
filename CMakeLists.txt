@@ -23,13 +23,14 @@ find_package(rerun_sdk REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(stella_vslam REQUIRED)
 find_package(cppzmq 4.11.0 REQUIRED)
+find_package(spdlog REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
 # utils
 add_library(utils src/utils.cpp)
-target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen)
+target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${spdlog_DIR})
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen spdlog::spdlog)
 
 # tarzan
 add_library(serial src/serial.cpp)

@@ -7,6 +7,7 @@
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
+#include <yasmin/logs.hpp>
 #include <zmq.hpp>
 
 namespace utils {
@@ -119,5 +120,8 @@ public:
     finish_processing = false;
   }
 };
+
+void yasmin_to_spdlog(yasmin::LogLevel level, const char *file,
+                      const char *function, int line, const char *text);
 } // namespace utils
 #endif

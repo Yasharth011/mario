@@ -169,6 +169,7 @@
             packages.stella_vslam
             packages.cppzmq
 	    packages.libzmq
+	    spdlog
           ];
         };
 
