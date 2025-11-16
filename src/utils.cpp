@@ -5,6 +5,7 @@
 #include <librealsense2/hpp/rs_processing.hpp>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
+#include <spdlog/spdlog.h>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
@@ -120,6 +121,25 @@ int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
     return 0;
   }
   return 1;
+}
+
+// custom logger for yasmin using spdlog
+void yasmin_to_spdlog(yasmin::LogLevel level, const char *file,
+                      const char *function, int line, const char *text) {
+  switch (level) {
+  case yasmin::LogLevel::ERROR:
+    spdlog::error(text);
+    break;
+  case yasmin::LogLevel::WARN:
+    spdlog::warn(text);
+    break;
+  case yasmin::LogLevel::INFO:
+    spdlog::info(text);
+    break;
+  case yasmin::LogLevel::DEBUG:
+    spdlog::debug(text);
+    break;
+  }
 }
 } // namespace utils
 
