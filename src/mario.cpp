@@ -2,6 +2,7 @@
 #include <boost/program_options.hpp>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <iterator>
@@ -27,6 +28,7 @@
 #include <zmq_addon.hpp>
 
 #include "nav.hpp"
+#include "pid.hpp"
 #include "serial.hpp"
 #include "slam.hpp"
 #include "utils.hpp"
@@ -38,12 +40,106 @@ const std::string path_planning_flag = "plan_path";
 
 class Navigate : public yasmin::State {
 
+private:
+  struct mapping::Slam_Pose pose;
+
 public:
   boost::asio::serial_port *nucleo;
-  float linear_x;
-  float angular_z;
-  Navigate(boost::asio::serial_port *serial)
-      : yasmin::State({"IDLE"}), nucleo(serial) {};
+  struct nav::navContext *nav_ctx;
+  struct control::Pid *pid_ctx;
+  utils::SafeQueue<mapping::Slam_Pose> &poseQueue;
+
+  Navigate(boost::asio::serial_port *serial, nav::navContext *ctx,
+           control::Pid *pid, utils::SafeQueue<mapping::Slam_Pose> &Queue)
+      : yasmin::State({"IDLE"}), nucleo(serial), nav_ctx(ctx), pid_ctx(pid),
+        poseQueue(Queue) {};
+
+  std::string
+  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
+    if (nav_ctx->pruned_path.size() < 2)
+      return "IDLE";
+    planning::Node previous_start = nav_ctx->current_start;
+    bool found_start = false;
+    for (size_t i = 0; i < nav_ctx->pruned_path.size() - 1; ++i) {
+      if (!found_start) {
+        if (nav_ctx->pruned_path[i] == nav_ctx->current_start) {
+          found_start = true;
+        } else {
+          continue; // keep skipping
+        }
+      }
+      planning::Node local_start = nav_ctx->pruned_path[i];
+      planning::Node local_goal = nav_ctx->pruned_path[i + 1];
+      // Ensure we only start executing from where the rover currently is
+      if (local_start.x != nav_ctx->current_start.x ||
+          local_start.y != nav_ctx->current_start.y) {
+        continue;
+      }
+
+      while (true) {
+        if (!poseQueue.consume(pose)) {
+          spdlog::error("State Machine : Unable to fetch data from Pose Queue");
+        }
+        float x = pose.x;
+        float y = pose.y;
+        float yaw = pose.yaw;
+        // compute linear error
+        double linear_error =
+            sqrt(pow(local_goal.x * nav::grid_resolution - x, 2) +
+                 pow(local_goal.y * nav::grid_resolution - y, 2));
+
+        double angle_error = atan2(local_goal.y * nav::grid_resolution - y,
+                                   local_goal.x * nav::grid_resolution - x) -
+                             yaw;
+        if (linear_error <= 0.5 && angle_error < 1.0)
+          break;
+        // compute time difference
+        uint64_t current_time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+        uint64_t dt = current_time - pid_ctx->last_time;
+
+        float linear_x = control::computeCommand(pid_ctx, linear_error, dt);
+        float angular_z = control::computeCommand(pid_ctx, angle_error, dt);
+
+        pid_ctx->last_time = current_time;
+        // write tarzan message
+        tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
+        std::string err =
+            serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+                nucleo, msg, tarzan::TARZAN_MSG_LEN));
+        spdlog::info(err);
+      }
+      control::resetPid(pid_ctx);
+
+      nav_ctx->current_start = local_goal;
+      previous_start = nav_ctx->current_start;
+      if (nav_ctx->current_start == nav_ctx->final_goal) {
+        // goal reached
+        blackboard->set<bool>(path_planning_flag, false);
+        break; // Exit movement loop
+      }
+    }
+    return "IDLE";
+  }
+};
+
+class Explore : public yasmin::State {
+
+private:
+  struct mapping::Slam_Pose pose;
+
+public:
+  boost::asio::serial_port *nucleo;
+  struct nav::navContext *nav_ctx;
+  struct control::Pid *pid_ctx;
+  utils::SafeQueue<mapping::Slam_Pose> &poseQueue;
+
+  Explore(boost::asio::serial_port *serial, nav::navContext *ctx,
+          control::Pid *pid, utils::SafeQueue<mapping::Slam_Pose> &Queue)
+      : yasmin::State({"IDLE"}), nucleo(serial), nav_ctx(ctx), pid_ctx(pid),
+        poseQueue(Queue) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -58,7 +154,8 @@ public:
   struct nav::navContext *nav_ctx;
 
   Idle(boost::asio::serial_port *serial, nav::navContext *ctx)
-      : yasmin::State({"NAVIGATE", "IDLE"}), nucleo(serial), nav_ctx(ctx) {};
+      : yasmin::State({"NAVIGATE", "IDLE", "EXPLORE"}), nucleo(serial),
+        nav_ctx(ctx) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -68,16 +165,22 @@ public:
     std::string err =
         serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
             nucleo, msg, tarzan::TARZAN_MSG_LEN));
+    spdlog::info(err);
 
     if (blackboard->get<bool>(path_planning_flag)) {
+      spdlog::info("inisde IDLE");
       if (!nav::findCurrentGoal(nav_ctx))
-        return "EXPLORE";
+        spdlog::info("exploring");
+      return "EXPLORE";
 
       std::vector<planning::Node> dense_path;
-      if (findPath(nav_ctx, dense_path))
+      if (nav::findPath(nav_ctx, dense_path)) {
+        nav_ctx->pruned_path = nav::prunePath(dense_path);
+        spdlog::info("navigating");
         return "NAVIGATE";
+      }
 
-      // if neither goal or path found create new map 
+      // if neither goal or path found create new map
       blackboard->set<bool>(path_planning_flag, false);
     }
     return "IDLE";
@@ -95,7 +198,10 @@ int main(int argc, char *argv[]) {
       "serial", po::value<std::string>(), "serial port to nucleo")(
       "br", po::value<int>(),
       "baudrate for com with controller")("rerun_ip", po::value<std::string>(),
-                                          "ip address of remote rerun viewer");
+                                          "ip address of remote rerun viewer")(
+      "proportional", po::value<double>(),
+      "proportional gain")("integral", po::value<double>(), "integral gain")(
+      "differential", po::value<double>(), "differential gain");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -107,8 +213,8 @@ int main(int argc, char *argv[]) {
   }
 
   /* taskflow vars */
-  tf::Executor executor; // creating exectutor
-  tf::Taskflow taskflow; // & taskflow graph obj
+  tf::Executor executor(2); // creating exectutor
+  tf::Taskflow taskflow;    // & taskflow graph obj
 
   /* zmq vars */
   zmq::context_t ctx(1);
@@ -161,8 +267,13 @@ int main(int argc, char *argv[]) {
   const std::string rerun_url =
       std::format("rerun+http://{}/proxy", vm["rerun_ip"].as<std::string>());
 
-  rec.log("Sys Logs", rerun::TextLog("Configuring rover peripherals"));
   spdlog::info("Configuring Rover Peripherals");
+
+  /* pid vars */
+  struct control::Pid *pid_ctx;
+  pid_ctx = control::initPid(vm["proportional"].as<double>(),
+                             vm["integral"].as<double>(),
+                             vm["differential"].as<double>());
 
   /* CONFIGURING REALSENSE */
   // init realsense handler
@@ -181,11 +292,17 @@ int main(int argc, char *argv[]) {
 
   /* CONFIGURING STATE MACHINE */
   // Add states to the state machine
-  sm->add_state("Navigate", std::make_shared<Navigate>(nucleo),
+  sm->add_state("Navigate",
+                std::make_shared<Navigate>(nucleo, nav_ctx, pid_ctx, poseQueue),
                 {{"IDLE", "Idle"}});
 
-  sm->add_state("Idle", std::make_shared<Idle>(nucleo, nav_ctx),
-                {{"NAVIGATE", "Navigate"}, {"IDLE", "Idle"}});
+  sm->add_state("Explore",
+                std::make_shared<Explore>(nucleo, nav_ctx, pid_ctx, poseQueue),
+                {{"IDLE", "Idle"}});
+
+  sm->add_state(
+      "Idle", std::make_shared<Idle>(nucleo, nav_ctx),
+      {{"NAVIGATE", "Navigate"}, {"EXPLORE", "Explore"}, {"IDLE", "Idle"}});
 
   // set start of FSM as IDLE STATE
   sm->set_start_state("Idle");
@@ -208,6 +325,7 @@ int main(int argc, char *argv[]) {
     slam_sub.connect("inproc://realsense");
 
     slam_sub.set(zmq::sockopt::subscribe, topic_color);
+
     slam_sub.set(zmq::sockopt::subscribe, topic_depth);
     slam_sub.set(zmq::sockopt::subscribe, topic_timestamp);
   } catch (zmq::error_t &e) {
@@ -218,12 +336,14 @@ int main(int argc, char *argv[]) {
     mapping_sub.connect("inproc://realsense");
 
     mapping_sub.set(zmq::sockopt::subscribe, topic_pointcloud);
+
   } catch (zmq::error_t &e) {
     spdlog::error(e.what());
   }
 
   /* CONFIGURING RERUN */
   rec.connect_grpc(rerun_url).exit_on_failure();
+
 
   /* TASK FLOW GRAPH */
   auto capture_frame =
@@ -253,12 +373,14 @@ int main(int argc, char *argv[]) {
 
               // get raw point cloud data
               rs2::points points = rs_ptr->pc.calculate(depthFrame);
+
               const rs2::vertex *vertices = points.get_vertices();
 
               std::vector<float> vertices_vector;
               vertices_vector.reserve(points.size());
 
               for (size_t i = 0; i < points.size(); i++) {
+
                 if (vertices[i].z) {
                   vertices_vector.push_back(vertices[i].x);
                   vertices_vector.push_back(vertices[i].y);
@@ -271,6 +393,7 @@ int main(int argc, char *argv[]) {
                   pub, topic_color, [raw_colorFrame, colorFrame_len]() {
                     zmq::message_t msg(colorFrame_len);
                     memcpy(msg.data(), raw_colorFrame, colorFrame_len);
+
                     return msg;
                   });
               if (!ret)
@@ -303,6 +426,7 @@ int main(int argc, char *argv[]) {
               if (!ret)
                 spdlog::error("Error Publishing: topic_pointcloud");
             }
+            return 0;
           })
           .name("capture_frame");
 
@@ -345,6 +469,7 @@ int main(int argc, char *argv[]) {
                     std::string coordinates =
                         std::format("x:{} y:{} z:{}", translations.x(),
                                     translations.y(), translations.z());
+                    // spdlog::info(coordinates);
                     rec.log("RoverPose", rerun::TextLog(coordinates));
 
                     // lock pose and write
@@ -355,6 +480,7 @@ int main(int argc, char *argv[]) {
                         .yaw = slam::yawfromPose(current_pose)};
                     // insert slam pose to queue
                     poseQueue.produce(std::move(pose));
+                    return 0;
                   })
                   .name("slam");
 
@@ -362,8 +488,9 @@ int main(int argc, char *argv[]) {
   auto mapping =
       taskflow
           .emplace([&]() {
-	    // if path_planning flag do not map
-	    if(blackboard->get<bool>(path_planning_flag)) return; 
+            // if path_planning flag do not map
+            if (blackboard->get<bool>(path_planning_flag))
+              return;
 
             std::vector<zmq::message_t> pointcloud_msg;
 
@@ -378,7 +505,7 @@ int main(int argc, char *argv[]) {
             struct mapping::Slam_Pose pose;
 
             if (!poseQueue.consume(pose)) {
-              spdlog::error("Unable to fetch data from Pose Queue");
+              spdlog::error("Mapping: Unable to fetch data from Pose Queue");
             }
 
             Eigen::Matrix3f R; // rotation matrix
@@ -406,6 +533,7 @@ int main(int argc, char *argv[]) {
             nav::updateMaps(nav_ctx, pose, filtered_points, rec);
             counter = nav_ctx->gridmap.occupancy_grid.size() - adder;
             if (counter >= nav::map_limit) {
+              spdlog::info("path planning flag set");
               blackboard->set<bool>(path_planning_flag, true);
               adder += nav::map_limit; // Increment adder so the condition
                                        // isn't met again immediately
@@ -414,26 +542,31 @@ int main(int argc, char *argv[]) {
           .name("mapping");
 
   // state machine task
-  //   try {
-  //     std::string outcome = (*sm.get())(blackboard);
-  //   } catch (const std::exception &e) {
-  //     YASMIN_LOG_ERROR(e.what());
-  //   }
+  executor.silent_async([&]() {
+    try {
+      std::string outcome = (*sm.get())(blackboard);
+      spdlog::info(std::format("YASMIN OUTCOME : {}", outcome));
+    } catch (const std::exception &e) {
+      spdlog::error(e.what());
+    }
+  });
 
   // define task graph
   capture_frame.precede(slam);
-  capture_frame.precede(mapping);
+  slam.precede(mapping);
 
   while (true) {
     try {
       executor.run(taskflow).wait();
     } catch (const std::exception &e) {
-      std::cout << "Exception: {}" << e.what();
+      spdlog::info(std::format("Exception: {}", e.what()));
     }
   }
 
   // killing objects
   delete slam_handler;
+  delete nav_ctx;
+  delete pid_ctx;
   utils::destroyHandle(rs_ptr);
   serial::close(nucleo);
 
