@@ -2,7 +2,6 @@
 #include <boost/program_options.hpp>
 #include <chrono>
 #include <condition_variable>
-#include <cstdint>
 #include <cstring>
 #include <format>
 #include <iterator>
@@ -160,26 +159,23 @@ public:
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
 
-    // write stop command to nucleo
-    tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(0.0, 0.0);
-    std::string err =
-        serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
-            nucleo, msg, tarzan::TARZAN_MSG_LEN));
-    spdlog::info(err);
-
+ //    // write stop command to nucleo
+ //    tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(0.0, 0.0);
+ //    std::string err =
+ //        serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+ //            nucleo, msg, tarzan::TARZAN_MSG_LEN));
+ //    spdlog::info(err);
+ 
     if (blackboard->get<bool>(path_planning_flag)) {
-      spdlog::info("inisde IDLE");
-      if (!nav::findCurrentGoal(nav_ctx))
-        spdlog::info("exploring");
-      return "EXPLORE";
+      if (!nav::findCurrentGoal(nav_ctx)){
+        return "EXPLORE";
+      }
 
       std::vector<planning::Node> dense_path;
       if (nav::findPath(nav_ctx, dense_path)) {
         nav_ctx->pruned_path = nav::prunePath(dense_path);
-        spdlog::info("navigating");
         return "NAVIGATE";
       }
-
       // if neither goal or path found create new map
       blackboard->set<bool>(path_planning_flag, false);
     }
@@ -283,7 +279,6 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   spdlog::info("Successfull setup of Realsense");
-  // Successfull setup of realsense
 
   /* CONFIGURING NUCLEO COM */
   // open nucleo com
@@ -465,12 +460,13 @@ int main(int argc, char *argv[]) {
                     current_pose = utils::camera_to_ned_transform * res;
                     auto translations = current_pose.col(3);
                     auto rotations = current_pose.block<3, 3>(0, 0);
+		    float yaw = slam::yawfromPose(current_pose);
 
                     // log to rerun
                     std::string coordinates =
-                        std::format("x:{} y:{} z:{}", translations.x(),
-                                    translations.y(), translations.z());
-                    // spdlog::info(coordinates);
+                        std::format("x:{:.5f} y:{:.5f} yaw:{:.5f}", float(translations.x()),
+                                    float(translations.y()), (yaw*180)/M_PI);
+
                     rec.log("RoverPose", rerun::TextLog(coordinates));
   
                     // lock pose and write
@@ -478,7 +474,7 @@ int main(int argc, char *argv[]) {
                         .x = float(translations.x()),
                         .y = float(translations.y()),
                         .z = float(translations.z()),
-                        .yaw = slam::yawfromPose(current_pose)};
+                        .yaw = yaw};
                     // insert slam pose to queue
                     poseQueue.produce(std::move(pose));
                     return 0;
@@ -542,6 +538,10 @@ int main(int argc, char *argv[]) {
           })
           .name("mapping");
 
+  // define task graph
+  capture_frame.precede(slam);
+  slam.precede(mapping);
+
   // state machine task
   executor.silent_async([&]() {
     try {
@@ -552,9 +552,6 @@ int main(int argc, char *argv[]) {
     }
   });
 
-  // define task graph
-  capture_frame.precede(slam);
-  slam.precede(mapping);
 
   while (true) {
     try {
@@ -563,6 +560,8 @@ int main(int argc, char *argv[]) {
       spdlog::info(std::format("Exception: {}", e.what()));
     }
   }
+
+  executor.wait_for_all();
 
   // killing objects
   delete slam_handler;
