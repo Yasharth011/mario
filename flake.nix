@@ -102,7 +102,6 @@
         packages.stella_vslam = with pkgs;
           stdenv.mkDerivation {
             name = "stella_vslam";
-            # packages.opencv
             src = fetchFromGitHub {
               owner = "stella-cv";
               repo = "stella_vslam";
@@ -156,6 +155,62 @@
             '';
           };
 
+        packages.ompl = with pkgs;
+          stdenv.mkDerivation {
+            name = "ompl";
+            src = fetchFromGitHub {
+              owner = "ompl";
+              repo = "ompl";
+              rev = "eabb4d0f825666e4553a2ec0ecb9c7a5a33637dd";
+              sha256 = "sha256-mm6tVoCdFk/+rdOzeONI/rMdU2FUHVw1ESpp289u1B0=";
+            };
+            nativeBuildInputs = [ cmake ];
+            propagatedBuildInputs = [ boost eigen yaml-cpp ];
+            configurePhase = ''
+              mkdir -p build/Release && cd build/Release 
+              cmake ../.. -DCMAKE_INSTALL_PREFIX=$out
+            '';
+            installPhase = ''
+              make -j4 install
+            '';
+          };
+
+        packages.grid_map_core = with pkgs;
+          stdenv.mkDerivation {
+            name = "grid_map_core";
+            src = fetchFromGitHub {
+              owner = "Yasharth011";
+              repo = "grid_map_UNROS";
+              rev = "1cf4564a193abda60cc9ffbfd4a33ac48ca2c248";
+              sha256 = "sha256-W7OVQPlM259awMx/ZW8S107HotXxqKrnF8jbq6IDSGk=";
+            };
+            nativeBuildInputs = [ cmake ];
+            propagatedBuildInputs = [ eigen ];
+            configurePhase = ''
+	      cd grid_map_core
+              mkdir -p build && cd build 
+              cmake .. -DCMAKE_INSTALL_PREFIX=$out
+            '';
+          };
+
+        packages.grid_map_pcl = with pkgs;
+          stdenv.mkDerivation {
+            name = "grid_map_pcl";
+            src = fetchFromGitHub {
+              owner = "Yasharth011";
+              repo = "grid_map_UNROS";
+              rev = "1cf4564a193abda60cc9ffbfd4a33ac48ca2c248";
+              sha256 = "sha256-W7OVQPlM259awMx/ZW8S107HotXxqKrnF8jbq6IDSGk=";
+            };
+            nativeBuildInputs = [ cmake ];
+            propagatedBuildInputs = [ boost eigen pcl yaml-cpp spdlog packages.grid_map_core ];
+            configurePhase = ''
+	      cd grid_map_pcl
+              mkdir -p build && cd build 
+              cmake .. -DCMAKE_INSTALL_PREFIX=$out
+            '';
+          };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [ cmake pkg-config ];
           buildInputs = with pkgs; [
@@ -169,6 +224,8 @@
             packages.stella_vslam
             packages.cppzmq
 	    packages.libzmq
+	    packages.ompl
+	    packages.grid_map_pcl
           ];
         };
 
