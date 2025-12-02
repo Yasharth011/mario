@@ -22,6 +22,7 @@ find_package(rerun_sdk REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(stella_vslam REQUIRED)
 find_package(cppzmq 4.11.0 REQUIRED)
+find_package(grid_map_core REQUIRED)
 find_package(grid_map_pcl REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
@@ -54,7 +55,7 @@ target_link_libraries(slam
 add_library(nav src/nav.cpp)
 target_include_directories(
 	nav PUBLIC include ${PCL_INCLUDE_DIRS})
-target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_pcl)
+target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_pcl grid_map_core)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)
