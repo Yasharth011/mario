@@ -25,6 +25,13 @@ struct slamHandle {
   }
 };
 
+struct slamPose {
+	float x; 
+	float y; 
+	float z;
+	float yaw;
+};
+
 struct rawColorDepthPair {
   const void *colorFrame;
   const void *depthFrame;
