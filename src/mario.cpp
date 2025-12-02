@@ -1,16 +1,14 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
 #include <format>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
-#include <mapping.h>
-#include <mutex>
 #include <opencv2/opencv.hpp>
+#include <pcl/common/transforms.h>
 #include <rerun.hpp>
 #include <rerun/archetypes/text_log.hpp>
 #include <spdlog/common.h>
@@ -68,19 +66,7 @@ public:
     std::string err =
         serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
             nucleo, msg, tarzan::TARZAN_MSG_LEN));
-
-    if (blackboard->get<bool>(path_planning_flag)) {
-      if (!nav::findCurrentGoal(nav_ctx))
-        return "EXPLORE";
-
-      std::vector<planning::Node> dense_path;
-      if (findPath(nav_ctx, dense_path))
-        return "NAVIGATE";
-
-      // if neither goal or path found create new map 
-      blackboard->set<bool>(path_planning_flag, false);
-    }
-    return "IDLE";
+    return "";
   }
 };
 
@@ -95,7 +81,8 @@ int main(int argc, char *argv[]) {
       "serial", po::value<std::string>(), "serial port to nucleo")(
       "br", po::value<int>(),
       "baudrate for com with controller")("rerun_ip", po::value<std::string>(),
-                                          "ip address of remote rerun viewer");
+                                          "ip address of remote rerun viewer")(
+      "gridmap_config", po::value<std::string>(), "gridmap parameters file");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -118,6 +105,7 @@ int main(int argc, char *argv[]) {
   std::string topic_color = "color_frame";
   std::string topic_depth = "depth_frame";
   std::string topic_timestamp = "timestamp";
+  std::string topic_pcl_header = "pcl_header";
   std::string topic_pointcloud = "point_cloud";
 
   /* Yasmin vars */
@@ -140,15 +128,13 @@ int main(int argc, char *argv[]) {
   struct slam::slamHandle *slam_handler = new slam::slamHandle();
   Eigen::Matrix<double, 4, 4> current_pose;
   Eigen::Matrix<double, 4, 4> res;
+  utils::SafeQueue<struct slam::slamPose> poseQueue;
 
   /* path planning vars */
-  struct nav::navContext *nav_ctx = new nav::navContext();
-  utils::SafeQueue<struct mapping::Slam_Pose> poseQueue;
-  std::mutex poseMtx;
-  bool poseAvail = false;
-  std::condition_variable poseCV;
-  int counter = 0;
-  int adder = 0;
+  struct nav::navContext *nav_ctx =
+      nav::setupNav(vm["gridmap_config"].as<std::string>());
+  const std::string elevation_layer = "elevation";
+  const std::string cost_layer = "cost_map";
 
   /* serial com vars */
   std::string SERIAL_PORT = vm["serial"].as<std::string>();
@@ -251,19 +237,24 @@ int main(int argc, char *argv[]) {
 
               double timestamp = fs.get_timestamp();
 
-              // get raw point cloud data
+              // get raw point cloud data and convert to pcl cloud
               rs2::points points = rs_ptr->pc.calculate(depthFrame);
+
+              auto sp = points.get_profile().as<rs2::video_stream_profile>();
+
+              // set pcl cloud header
+              utils::pcl_header header;
+              header.width = static_cast<uint32_t>(sp.width());
+              header.height = static_cast<uint32_t>(sp.height());
+              header.is_dense = false;
+
+              // set point cloud vertices
               const rs2::vertex *vertices = points.get_vertices();
-
               std::vector<float> vertices_vector;
-              vertices_vector.reserve(points.size());
-
               for (size_t i = 0; i < points.size(); i++) {
-                if (vertices[i].z) {
-                  vertices_vector.push_back(vertices[i].x);
-                  vertices_vector.push_back(vertices[i].y);
-                  vertices_vector.push_back(vertices[i].z);
-                }
+                vertices_vector.push_back(vertices[i].x);
+                vertices_vector.push_back(vertices[i].y);
+                vertices_vector.push_back(vertices[i].z);
               }
 
               // publishing messages
@@ -295,11 +286,12 @@ int main(int argc, char *argv[]) {
               if (!ret)
                 spdlog::error("Error Publishing: topic_timestamp");
 
-              ret = utils::publish_msg(pub, topic_pointcloud,
-                                       [vertices_vector]() {
-                                         zmq::message_t msg(vertices_vector);
-                                         return msg;
-                                       });
+              ret = utils::publish_msg(pub, topic_pcl_header, [header]() {
+                zmq::message_t msg(sizeof(struct utils::pcl_header));
+                std::memcpy(msg.data(), (const void *)&header,
+                            sizeof(struct utils::pcl_header));
+                return msg;
+              });
               if (!ret)
                 spdlog::error("Error Publishing: topic_pointcloud");
             }
@@ -307,109 +299,118 @@ int main(int argc, char *argv[]) {
           .name("capture_frame");
 
   // slam task
-  auto slam = taskflow
-                  .emplace([&]() {
-                    std::vector<zmq::message_t> colorFrame_msg;
-                    std::vector<zmq::message_t> depthFrame_msg;
-                    std::vector<zmq::message_t> timestamp_msg;
+  auto slam =
+      taskflow
+          .emplace([&]() {
+            std::vector<zmq::message_t> colorFrame_msg;
+            std::vector<zmq::message_t> depthFrame_msg;
+            std::vector<zmq::message_t> timestamp_msg;
 
-                    zmq::recv_result_t result_color = zmq::recv_multipart(
-                        slam_sub, std::back_inserter(colorFrame_msg));
-                    zmq::recv_result_t result_depth = zmq::recv_multipart(
-                        slam_sub, std::back_inserter(depthFrame_msg));
-                    zmq::recv_result_t result_timestamp = zmq::recv_multipart(
-                        slam_sub, std::back_inserter(timestamp_msg));
+            zmq::recv_result_t result_color = zmq::recv_multipart(
+                slam_sub, std::back_inserter(colorFrame_msg));
+            zmq::recv_result_t result_depth = zmq::recv_multipart(
+                slam_sub, std::back_inserter(depthFrame_msg));
+            zmq::recv_result_t result_timestamp = zmq::recv_multipart(
+                slam_sub, std::back_inserter(timestamp_msg));
 
-                    struct slam::rawColorDepthPair *frame_raw =
-                        new slam::rawColorDepthPair();
+            // check if recvd message is corrupt
+            if (!result_color.has_value() || !result_depth.has_value() ||
+                !result_timestamp.has_value())
+              return;
 
-                    frame_raw->colorFrame = colorFrame_msg[1].data();
-                    frame_raw->depthFrame = depthFrame_msg[1].data();
+            struct slam::rawColorDepthPair *frame_raw =
+                new slam::rawColorDepthPair();
 
-                    std::string timestamp_string;
-                    memcpy(timestamp_string.data(), timestamp_msg[1].data(),
-                           sizeof(timestamp_msg[1].data()));
-                    double timestamp = std::stod(timestamp_string);
-                    frame_raw->timestamp = timestamp;
+            frame_raw->colorFrame = colorFrame_msg[1].data();
+            frame_raw->depthFrame = depthFrame_msg[1].data();
 
-                    struct slam::RGBDFrame *frame_cv =
-                        slam::getColorDepthPair(frame_raw);
+            std::string timestamp_string;
+            memcpy(timestamp_string.data(), timestamp_msg[1].data(),
+                   sizeof(timestamp_msg[1].data()));
+            double timestamp = std::stod(timestamp_string);
+            frame_raw->timestamp = timestamp;
 
-                    res = slam::runLocalization(frame_cv, slam_handler, &rec);
+            struct slam::RGBDFrame *frame_cv =
+                slam::getColorDepthPair(frame_raw);
 
-                    current_pose = utils::camera_to_ned_transform * res;
-                    auto translations = current_pose.col(3);
-                    auto rotations = current_pose.block<3, 3>(0, 0);
+            res = slam::runLocalization(frame_cv, slam_handler, &rec);
 
-                    // log to rerun
-                    std::string coordinates =
-                        std::format("x:{} y:{} z:{}", translations.x(),
-                                    translations.y(), translations.z());
-                    rec.log("RoverPose", rerun::TextLog(coordinates));
+            current_pose = utils::T_camera_to_ned * res;
+            auto translations = current_pose.col(3);
+            auto rotations = current_pose.block<3, 3>(0, 0);
 
-                    // lock pose and write
-                    struct mapping::Slam_Pose pose = {
-                        .x = float(translations.x()),
-                        .y = float(translations.y()),
-                        .z = float(translations.z()),
-                        .yaw = slam::yawfromPose(current_pose)};
-                    // insert slam pose to queue
-                    poseQueue.produce(std::move(pose));
-                  })
-                  .name("slam");
+            // log to rerun
+            std::string coordinates =
+                std::format("x:{} y:{} z:{}", translations.x(),
+                            translations.y(), translations.z());
+            rec.log("RoverPose", rerun::TextLog(coordinates));
+
+            // lock pose and write
+            struct slam::slamPose pose = {.x = float(translations.x()),
+                                          .y = float(translations.y()),
+                                          .z = float(translations.z()),
+                                          .yaw =
+                                              slam::yawfromPose(current_pose)};
+            // insert slam pose to queue
+            poseQueue.produce(std::move(pose));
+          })
+          .name("slam");
 
   // mapping task
   auto mapping =
       taskflow
           .emplace([&]() {
-	    // if path_planning flag do not map
-	    if(blackboard->get<bool>(path_planning_flag)) return; 
-
             std::vector<zmq::message_t> pointcloud_msg;
+            std::vector<zmq::message_t> pcl_header;
 
             zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
                 mapping_sub, std::back_inserter(pointcloud_msg));
+            zmq::recv_result_t result_pcl_header = zmq::recv_multipart(
+                mapping_sub, std::back_inserter(pcl_header));
 
-            std::vector<float> points_buffer;
+            // check if recvd message is corrupt
+            if (!result_pointcloud.has_value() || !result_pcl_header.has_value())
+              return;
+
+	    struct utils::pcl_header header; 
+	    std::memcpy(&header, pcl_header[1].data(), pcl_header[1].size());
+
+	    std::vector<float> points_buffer;
             points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
             std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
                         pointcloud_msg[1].size());
 
-            struct mapping::Slam_Pose pose;
+            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+	    cloud->width = header.width;
+	    cloud->height = header.height;
+	    cloud->is_dense = false;
+
+	    for (auto i = 0; i < points_buffer.size(); i += 3) {
+              cloud->points[i].x = points_buffer[i + 2];  // forward
+              cloud->points[i].y = -points_buffer[i];     // left-right
+              cloud->points[i].z = -points_buffer[i + 1]; // up-down inversion
+	    }
+
+            struct slam::slamPose pose;
 
             if (!poseQueue.consume(pose)) {
               spdlog::error("Unable to fetch data from Pose Queue");
             }
 
-            Eigen::Matrix3f R; // rotation matrix
-            R = Eigen::AngleAxisf(pose.yaw, Eigen::Vector3f::UnitZ());
-            // translation matrix
-            Eigen::Vector3f T(pose.x, pose.y, pose.z);
+            float yaw_cos = std::cos(pose.yaw);
+            float yaw_sin = std::sin(pose.yaw);
+            // camera to ned transformation matrix
+            const Eigen::Matrix<double, 4, 4> T_camera_to_map{
+                {yaw_sin, 0, yaw_cos, pose.x},
+                {-yaw_cos, 0, yaw_sin, pose.y},
+                {0, -1, 0, pose.z},
+                {0, 0, 0, 1}};
 
-            std::vector<Eigen::Vector3f> transformed_points;
+            pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud;
+            // transform pcl cloud
+            pcl::transformPointCloud(*cloud, *transformed_cloud, T_camera_to_map);
 
-            for (auto i = 0; i < points_buffer.size(); i += 3) {
-              float dx = points_buffer[i + 2];  // forward
-              float dy = -points_buffer[i];     // left-right
-              float dz = -points_buffer[i + 1]; // up-down inversion
-
-              Eigen::Vector3f p_cam(dx, dy, dz);
-
-              // Applying rotation and translation together
-              Eigen::Vector3f p_world = R * p_cam + T;
-              transformed_points.push_back(p_world);
-            }
-
-            std::vector<Eigen::Vector3f> filtered_points =
-                nav::processPointCloud(transformed_points);
-
-            nav::updateMaps(nav_ctx, pose, filtered_points, rec);
-            counter = nav_ctx->gridmap.occupancy_grid.size() - adder;
-            if (counter >= nav::map_limit) {
-              blackboard->set<bool>(path_planning_flag, true);
-              adder += nav::map_limit; // Increment adder so the condition
-                                       // isn't met again immediately
-            }
+            nav::getGridmapFromPointCloud(&nav_ctx->gridmap, transformed_cloud);
           })
           .name("mapping");
 

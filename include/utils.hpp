@@ -28,6 +28,12 @@ struct rs_config {
   bool enable_imu = false;
 };
 
+struct pcl_header {
+	uint32_t width;
+	uint32_t height;
+	uint32_t is_dense = false;
+};
+
 enum Error : uint8_t {
   NoError = 0,
   NoDeviceConnected,
@@ -35,7 +41,7 @@ enum Error : uint8_t {
   NoFrameset,
 };
 
-const Eigen::Matrix<double, 4, 4> camera_to_ned_transform{
+const Eigen::Matrix<double, 4, 4> T_camera_to_ned{
     {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
 
 struct rs_handler *setupRealsense(struct rs_config config);
