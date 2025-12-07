@@ -28,12 +28,6 @@ struct rs_config {
   bool enable_imu = false;
 };
 
-struct pcl_header {
-	uint32_t width;
-	uint32_t height;
-	uint32_t is_dense = false;
-};
-
 enum Error : uint8_t {
   NoError = 0,
   NoDeviceConnected,
