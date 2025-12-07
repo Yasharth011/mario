@@ -71,34 +71,6 @@
             meta = { description = "C++ bindings for rerun.io"; };
           };
 
-        packages.path-planning = with pkgs;
-          stdenv.mkDerivation {
-            name = "path-planning";
-            src = fetchFromGitHub {
-              owner = "CPPavithra";
-              repo = "PathPlanning-Astar";
-              rev = "8fee6e4db934dcf9dbd67a9e3b4fc89785da35d2";
-              sha256 = "sha256-Idvc1UpOjkMdCiP1lAvPpWMG2XQ7ZZT17LlEHPOc5us=";
-            };
-            nativeBuildInputs = [ cmake ];
-            propagatedBuildInputs = [
-              eigen
-              librealsense
-              boost
-              pcl
-              packages.rerun_cpp
-              packages.opencv
-            ];
-            configurePhase = ''
-              mkdir build && cd build 
-              cmake .. -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX=$out
-            '';
-            buildPhase = "  make ";
-            installPhase = ''
-              make install
-            '';
-          };
-
         packages.stella_vslam = with pkgs;
           stdenv.mkDerivation {
             name = "stella_vslam";
@@ -220,12 +192,14 @@
             asio
             taskflow
             packages.cobs-c
-            packages.path-planning
             packages.stella_vslam
             packages.cppzmq
 	    packages.libzmq
 	    packages.ompl
-	    packages.grid_map_pcl
+	    packages.grid_map_core
+	    yaml-cpp
+	    pcl
+	    librealsense
           ];
         };
 
