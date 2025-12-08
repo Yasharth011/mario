@@ -7,9 +7,9 @@
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
-#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/transforms.h>
+#include <pcl/impl/point_types.hpp>
 #include <rerun.hpp>
 #include <rerun/archetypes/text_log.hpp>
 #include <spdlog/common.h>
@@ -130,8 +130,6 @@ int main(int argc, char *argv[]) {
   /* path planning vars */
   struct nav::navContext *nav_ctx =
       nav::setupNav(vm["gridmap_config"].as<std::string>());
-  const std::string elevation_layer = "elevation";
-  const std::string cost_layer = "cost_map";
 
   /* serial com vars */
   std::string SERIAL_PORT = vm["serial"].as<std::string>();
@@ -144,7 +142,6 @@ int main(int argc, char *argv[]) {
   const std::string rerun_url =
       std::format("rerun+http://{}/proxy", vm["rerun_ip"].as<std::string>());
 
-  rec.log("Sys Logs", rerun::TextLog("Configuring rover peripherals"));
   spdlog::info("Configuring Rover Peripherals");
 
   /* CONFIGURING REALSENSE */
@@ -164,8 +161,7 @@ int main(int argc, char *argv[]) {
 
   /* CONFIGURING STATE MACHINE */
   // Add states to the state machine
-  sm->add_state("Navigate", std::make_shared<Navigate>(),
-                {{"IDLE", "Idle"}});
+  sm->add_state("Navigate", std::make_shared<Navigate>(), {{"IDLE", "Idle"}});
 
   sm->add_state("Idle", std::make_shared<Idle>(nucleo, nav_ctx),
                 {{"NAVIGATE", "Navigate"}, {"IDLE", "Idle"}});
@@ -201,6 +197,7 @@ int main(int argc, char *argv[]) {
     mapping_sub.connect("inproc://realsense");
 
     mapping_sub.set(zmq::sockopt::subscribe, topic_pointcloud);
+    mapping_sub.set(zmq::sockopt::subscribe, topic_pcl_header);
   } catch (zmq::error_t &e) {
     spdlog::error(e.what());
   }
@@ -212,75 +209,79 @@ int main(int argc, char *argv[]) {
   auto capture_frame =
       taskflow
           .emplace([&]() {
-            int ret; // error ret var
+            while (true) {
+              int ret; // error ret var
 
-            // fetch frames from realsense
-            frame = rs_ptr->frame_q.wait_for_frame();
+              // fetch frames from realsense
+              frame = rs_ptr->frame_q.wait_for_frame();
 
-            if (rs2::frameset fs = frame.as<rs2::frameset>()) {
-              auto aligned_frames = rs_ptr->align.process(fs);
+              if (rs2::frameset fs = frame.as<rs2::frameset>()) {
+                auto aligned_frames = rs_ptr->align.process(fs);
 
-              rs2::video_frame colorFrame =
-                  aligned_frames.first(RS2_STREAM_COLOR);
-              rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
+                rs2::video_frame colorFrame =
+                    aligned_frames.first(RS2_STREAM_COLOR);
+                rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
 
-              // get raw frame data
-              const void *raw_colorFrame = colorFrame.get_data();
-              const void *raw_depthFrame = depthFrame.get_data();
+                // get raw frame data
+                const void *raw_colorFrame = colorFrame.get_data();
+                const void *raw_depthFrame = depthFrame.get_data();
 
-              // get length of frames
-              size_t colorFrame_len = colorFrame.get_data_size();
-              size_t depthFrame_len = depthFrame.get_data_size();
+                // get length of frames
+                size_t colorFrame_len = colorFrame.get_data_size();
+                size_t depthFrame_len = depthFrame.get_data_size();
 
-              double timestamp = fs.get_timestamp();
+                double timestamp = fs.get_timestamp();
 
-              // get raw point cloud data and convert to pcl cloud
-              rs2::points points = rs_ptr->pc.calculate(depthFrame);
+                // get raw point cloud data and convert to pcl cloud
+                rs2::points points = rs_ptr->pc.calculate(depthFrame);
 
-              auto sp = points.get_profile().as<rs2::video_stream_profile>();
+                // set point cloud vertices
+                const rs2::vertex *vertices = points.get_vertices();
+                std::vector<float> vertices_vector;
+                for (size_t i = 0; i < points.size(); i++) {
+                  vertices_vector.push_back(vertices[i].x);
+                  vertices_vector.push_back(vertices[i].y);
+                  vertices_vector.push_back(vertices[i].z);
+                }
 
-              // set pcl cloud header
-              header.width = static_cast<uint32_t>(sp.width());
-              header.height = static_cast<uint32_t>(sp.height());
-              header.is_dense = false;
+                // publishing messages
+                ret = utils::publish_msg(
+                    pub, topic_color, [raw_colorFrame, colorFrame_len]() {
+                      zmq::message_t msg(colorFrame_len);
+                      memcpy(msg.data(), raw_colorFrame, colorFrame_len);
+                      return msg;
+                    });
+                if (!ret)
+                  spdlog::error("Error Publishing: topic_color");
 
-              // set point cloud vertices
-              const rs2::vertex *vertices = points.get_vertices();
-              std::vector<float> vertices_vector;
-              for (size_t i = 0; i < points.size(); i++) {
-                vertices_vector.push_back(vertices[i].x);
-                vertices_vector.push_back(vertices[i].y);
-                vertices_vector.push_back(vertices[i].z);
+                ret = utils::publish_msg(
+                    pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
+                      zmq::message_t msg(depthFrame_len);
+                      memcpy(msg.data(), raw_depthFrame, depthFrame_len);
+                      return msg;
+                    });
+                if (!ret)
+                  spdlog::error("Error Publishing: topic_depth");
+
+                ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
+                  std::string timestamp_string = std::to_string(timestamp);
+                  zmq::message_t msg(timestamp_string.size());
+                  memcpy(msg.data(), timestamp_string.data(),
+                         timestamp_string.size());
+                  return msg;
+                });
+                if (!ret)
+                  spdlog::error("Error Publishing: topic_timestamp");
+
+                ret = utils::publish_msg(pub, topic_pointcloud,
+                                         [vertices_vector]() {
+                                           zmq::message_t msg(vertices_vector);
+                                           return msg;
+                                         });
+                if (!ret)
+                  spdlog::error("Error Publishing: topic_pointcloud");
               }
-
-              // publishing messages
-              ret = utils::publish_msg(
-                  pub, topic_color, [raw_colorFrame, colorFrame_len]() {
-                    zmq::message_t msg(colorFrame_len);
-                    memcpy(msg.data(), raw_colorFrame, colorFrame_len);
-                    return msg;
-                  });
-              if (!ret)
-                spdlog::error("Error Publishing: topic_color");
-
-              ret = utils::publish_msg(
-                  pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
-                    zmq::message_t msg(depthFrame_len);
-                    memcpy(msg.data(), raw_depthFrame, depthFrame_len);
-                    return msg;
-                  });
-              if (!ret)
-                spdlog::error("Error Publishing: topic_depth");
-
-              ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
-                std::string timestamp_string = std::to_string(timestamp);
-                zmq::message_t msg(timestamp_string.size());
-                memcpy(msg.data(), timestamp_string.data(),
-                       timestamp_string.size());
-                return msg;
-              });
-              if (!ret)
-                spdlog::error("Error Publishing: topic_timestamp");
+              // return 0;
             }
           })
           .name("capture_frame");
@@ -289,57 +290,60 @@ int main(int argc, char *argv[]) {
   auto slam =
       taskflow
           .emplace([&]() {
-            std::vector<zmq::message_t> colorFrame_msg;
-            std::vector<zmq::message_t> depthFrame_msg;
-            std::vector<zmq::message_t> timestamp_msg;
+            while (true) {
+              std::vector<zmq::message_t> colorFrame_msg;
+              std::vector<zmq::message_t> depthFrame_msg;
+              std::vector<zmq::message_t> timestamp_msg;
 
-            zmq::recv_result_t result_color = zmq::recv_multipart(
-                slam_sub, std::back_inserter(colorFrame_msg));
-            zmq::recv_result_t result_depth = zmq::recv_multipart(
-                slam_sub, std::back_inserter(depthFrame_msg));
-            zmq::recv_result_t result_timestamp = zmq::recv_multipart(
-                slam_sub, std::back_inserter(timestamp_msg));
+              zmq::recv_result_t result_color = zmq::recv_multipart(
+                  slam_sub, std::back_inserter(colorFrame_msg));
+              zmq::recv_result_t result_depth = zmq::recv_multipart(
+                  slam_sub, std::back_inserter(depthFrame_msg));
+              zmq::recv_result_t result_timestamp = zmq::recv_multipart(
+                  slam_sub, std::back_inserter(timestamp_msg));
 
-            // check if recvd message is corrupt
-            if (!result_color.has_value() || !result_depth.has_value() ||
-                !result_timestamp.has_value())
-              return;
+              // check if recvd message is corrupt
+              if (!result_color.has_value() || !result_depth.has_value() ||
+                  !result_timestamp.has_value())
+                continue;
 
-            struct slam::rawColorDepthPair *frame_raw =
-                new slam::rawColorDepthPair();
+              struct slam::rawColorDepthPair *frame_raw =
+                  new slam::rawColorDepthPair();
 
-            frame_raw->colorFrame = colorFrame_msg[1].data();
-            frame_raw->depthFrame = depthFrame_msg[1].data();
+              frame_raw->colorFrame = colorFrame_msg[1].data();
+              frame_raw->depthFrame = depthFrame_msg[1].data();
 
-            std::string timestamp_string;
-            memcpy(timestamp_string.data(), timestamp_msg[1].data(),
-                   sizeof(timestamp_msg[1].data()));
-            double timestamp = std::stod(timestamp_string);
-            frame_raw->timestamp = timestamp;
+              std::string timestamp_string;
+              memcpy(timestamp_string.data(), timestamp_msg[1].data(),
+                     sizeof(timestamp_msg[1].data()));
+              double timestamp = std::stod(timestamp_string);
+              frame_raw->timestamp = timestamp;
 
-            struct slam::RGBDFrame *frame_cv =
-                slam::getColorDepthPair(frame_raw);
+              struct slam::RGBDFrame *frame_cv =
+                  slam::getColorDepthPair(frame_raw);
 
-            res = slam::runLocalization(frame_cv, slam_handler, &rec);
+              res = slam::runLocalization(frame_cv, slam_handler, &rec);
 
-            current_pose = utils::T_camera_to_ned * res;
-            auto translations = current_pose.col(3);
-            auto rotations = current_pose.block<3, 3>(0, 0);
+              current_pose = utils::T_camera_to_ned * res;
+              auto translations = current_pose.col(3);
+              auto rotations = current_pose.block<3, 3>(0, 0);
 
-            // log to rerun
-            std::string coordinates =
-                std::format("x:{} y:{} z:{}", translations.x(),
-                            translations.y(), translations.z());
-            rec.log("RoverPose", rerun::TextLog(coordinates));
+              // log to rerun
+              std::string coordinates =
+                  std::format("x:{} y:{} z:{}", translations.x(),
+                              translations.y(), translations.z());
+              rec.log("RoverPose", rerun::TextLog(coordinates));
 
-            // lock pose and write
-            struct slam::slamPose pose = {.x = float(translations.x()),
-                                          .y = float(translations.y()),
-                                          .z = float(translations.z()),
-                                          .yaw =
-                                              slam::yawfromPose(current_pose)};
-            // insert slam pose to queue
-            poseQueue.produce(std::move(pose));
+              // lock pose and write
+              struct slam::slamPose pose = {
+                  .x = float(translations.x()),
+                  .y = float(translations.y()),
+                  .z = float(translations.z()),
+                  .yaw = slam::yawfromPose(current_pose)};
+              // insert slam pose to queue
+              poseQueue.produce(std::move(pose));
+              // return 0;
+            }
           })
           .name("slam");
 
@@ -347,49 +351,61 @@ int main(int argc, char *argv[]) {
   auto mapping =
       taskflow
           .emplace([&]() {
-            std::vector<zmq::message_t> pointcloud_msg;
-            std::vector<zmq::message_t> pcl_header;
+            while (true) {
+              std::vector<zmq::message_t> pointcloud_msg;
 
-            zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
-                mapping_sub, std::back_inserter(pointcloud_msg));
+              zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
+                  mapping_sub, std::back_inserter(pointcloud_msg));
 
-            // check if recvd message is corrupt
-            if (!result_pointcloud.has_value()) 
-              return;
+              // check if recvd message is corrupt
+              if (!result_pointcloud.has_value())
+                continue;
 
+              std::vector<float> points_buffer;
+              points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
+              std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
+                          pointcloud_msg[1].size());
+              int buffer_size =
+                  std::ceil(points_buffer.size() /
+                            3); //  ceil -> buffer_size is not bigger
+                                // than cloud size (=buffer_size/3)
 
-            std::vector<float> points_buffer;
-            points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
-            std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
-                        pointcloud_msg[1].size());
+              pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(
+                  new pcl::PointCloud<pcl::PointXYZ>());
+              cloud->width = buffer_size; // header.width;
+              cloud->height = 1;          // header.height;
+              cloud->is_dense = false;
+              cloud->points.resize(buffer_size);
 
-            pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
-            for (auto i = 0; i < points_buffer.size(); i += 3) {
-              cloud->points[i].x = points_buffer[i + 2];  // forward
-              cloud->points[i].y = -points_buffer[i];     // left-right
-              cloud->points[i].z = -points_buffer[i + 1]; // up-down inversion
+              for (auto i = 0; i < buffer_size; i += 3) {
+                cloud->points[i].x = points_buffer[i];
+                cloud->points[i].y = points_buffer[i + 1];
+                cloud->points[i].z = points_buffer[i + 2];
+              }
+
+              struct slam::slamPose pose;
+              if (!poseQueue.consume(pose)) {
+                spdlog::error("Unable to fetch data from Pose Queue");
+                continue;
+              }
+
+              float yaw_cos = std::cos(pose.yaw);
+              float yaw_sin = std::sin(pose.yaw);
+              // camera to ned transformation matrix
+              const Eigen::Matrix<double, 4, 4> T_camera_to_map{
+                  {yaw_sin, 0, yaw_cos, pose.x},
+                  {-yaw_cos, 0, yaw_sin, pose.y},
+                  {0, -1, 0, pose.z},
+                  {0, 0, 0, 1}};
+
+              // filter point cloud
+              nav::preProcessPointCloud(nav_ctx, cloud, T_camera_to_map);
+
+              // process grid map layer
+              nav::processGridMapCells(nav_ctx, cloud);
+
+              // return 0;
             }
-
-            struct slam::slamPose pose;
-
-            if (!poseQueue.consume(pose)) {
-              spdlog::error("Unable to fetch data from Pose Queue");
-            }
-
-            float yaw_cos = std::cos(pose.yaw);
-            float yaw_sin = std::sin(pose.yaw);
-            // camera to ned transformation matrix
-            const Eigen::Matrix<double, 4, 4> T_camera_to_map{
-                {yaw_sin, 0, yaw_cos, pose.x},
-                {-yaw_cos, 0, yaw_sin, pose.y},
-                {0, -1, 0, pose.z},
-                {0, 0, 0, 1}};
-
-            pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud;
-            // transform pcl cloud
-            pcl::transformPointCloud(*cloud, *transformed_cloud,
-                                     T_camera_to_map);
-
           })
           .name("mapping");
 
@@ -401,16 +417,17 @@ int main(int argc, char *argv[]) {
   //   }
 
   // define task graph
-  capture_frame.precede(slam);
-  capture_frame.precede(mapping);
+  // capture_frame.precede(capture_frame);
+  // slam.precede(slam);
+  // mapping.precede(mapping);
 
-  while (true) {
-    try {
-      executor.run(taskflow).wait();
-    } catch (const std::exception &e) {
-      std::cout << "Exception: {}" << e.what();
-    }
+  // while (true) {
+  try {
+    executor.run(taskflow).wait();
+  } catch (const std::exception &e) {
+    std::cout << "Exception: {}" << e.what();
   }
+  // }
 
   // killing objects
   delete slam_handler;
