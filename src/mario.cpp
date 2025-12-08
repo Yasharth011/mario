@@ -7,6 +7,7 @@
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/transforms.h>
 #include <rerun.hpp>
@@ -37,11 +38,7 @@ const std::string path_planning_flag = "plan_path";
 class Navigate : public yasmin::State {
 
 public:
-  boost::asio::serial_port *nucleo;
-  float linear_x;
-  float angular_z;
-  Navigate(boost::asio::serial_port *serial)
-      : yasmin::State({"IDLE"}), nucleo(serial) {};
+  Navigate() : yasmin::State({"IDLE"}) {};
 
   std::string
   execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
@@ -66,7 +63,7 @@ public:
     std::string err =
         serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
             nucleo, msg, tarzan::TARZAN_MSG_LEN));
-    return "";
+    return "IDLE";
   }
 };
 
@@ -167,7 +164,7 @@ int main(int argc, char *argv[]) {
 
   /* CONFIGURING STATE MACHINE */
   // Add states to the state machine
-  sm->add_state("Navigate", std::make_shared<Navigate>(nucleo),
+  sm->add_state("Navigate", std::make_shared<Navigate>(),
                 {{"IDLE", "Idle"}});
 
   sm->add_state("Idle", std::make_shared<Idle>(nucleo, nav_ctx),
@@ -243,7 +240,6 @@ int main(int argc, char *argv[]) {
               auto sp = points.get_profile().as<rs2::video_stream_profile>();
 
               // set pcl cloud header
-              utils::pcl_header header;
               header.width = static_cast<uint32_t>(sp.width());
               header.height = static_cast<uint32_t>(sp.height());
               header.is_dense = false;
@@ -285,15 +281,6 @@ int main(int argc, char *argv[]) {
               });
               if (!ret)
                 spdlog::error("Error Publishing: topic_timestamp");
-
-              ret = utils::publish_msg(pub, topic_pcl_header, [header]() {
-                zmq::message_t msg(sizeof(struct utils::pcl_header));
-                std::memcpy(msg.data(), (const void *)&header,
-                            sizeof(struct utils::pcl_header));
-                return msg;
-              });
-              if (!ret)
-                spdlog::error("Error Publishing: topic_pointcloud");
             }
           })
           .name("capture_frame");
@@ -365,31 +352,23 @@ int main(int argc, char *argv[]) {
 
             zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
                 mapping_sub, std::back_inserter(pointcloud_msg));
-            zmq::recv_result_t result_pcl_header = zmq::recv_multipart(
-                mapping_sub, std::back_inserter(pcl_header));
 
             // check if recvd message is corrupt
-            if (!result_pointcloud.has_value() || !result_pcl_header.has_value())
+            if (!result_pointcloud.has_value()) 
               return;
 
-	    struct utils::pcl_header header; 
-	    std::memcpy(&header, pcl_header[1].data(), pcl_header[1].size());
 
-	    std::vector<float> points_buffer;
+            std::vector<float> points_buffer;
             points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
             std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
                         pointcloud_msg[1].size());
 
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
-	    cloud->width = header.width;
-	    cloud->height = header.height;
-	    cloud->is_dense = false;
-
-	    for (auto i = 0; i < points_buffer.size(); i += 3) {
+            for (auto i = 0; i < points_buffer.size(); i += 3) {
               cloud->points[i].x = points_buffer[i + 2];  // forward
               cloud->points[i].y = -points_buffer[i];     // left-right
               cloud->points[i].z = -points_buffer[i + 1]; // up-down inversion
-	    }
+            }
 
             struct slam::slamPose pose;
 
@@ -408,9 +387,9 @@ int main(int argc, char *argv[]) {
 
             pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud;
             // transform pcl cloud
-            pcl::transformPointCloud(*cloud, *transformed_cloud, T_camera_to_map);
+            pcl::transformPointCloud(*cloud, *transformed_cloud,
+                                     T_camera_to_map);
 
-            nav::getGridmapFromPointCloud(&nav_ctx->gridmap, transformed_cloud);
           })
           .name("mapping");
 
