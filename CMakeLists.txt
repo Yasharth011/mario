@@ -24,6 +24,7 @@ find_package(stella_vslam REQUIRED)
 find_package(cppzmq 4.11.0 REQUIRED)
 find_package(grid_map_core REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(ompl 1.7.0 REQUIRED)
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
@@ -55,7 +56,7 @@ target_link_libraries(slam
 add_library(nav src/nav.cpp)
 target_include_directories(
 	nav PUBLIC include ${PCL_INCLUDE_DIRS})
-target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_core yaml-cpp)
+target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_core yaml-cpp ompl::ompl)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)

@@ -152,7 +152,12 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   spdlog::info("Successfull setup of Realsense");
-  // Successfull setup of realsense
+  // Camera warmup - dropping several first frames to let auto-exposure stabilize
+  for(int i = 0; i < 100; i++)
+    {
+        // Wait for all configured streams to produce a frame
+        frame = rs_ptr->frame_q.wait_for_frame();
+    }
 
   /* CONFIGURING NUCLEO COM */
   // open nucleo com
@@ -381,6 +386,9 @@ int main(int argc, char *argv[]) {
                 cloud->points[i].x = points_buffer[i];
                 cloud->points[i].y = points_buffer[i + 1];
                 cloud->points[i].z = points_buffer[i + 2];
+                spdlog::debug(std::format("{} {} {}", cloud->points[i].x,
+                                         cloud->points[i].y,
+                                         cloud->points[i].z));
               }
 
               struct slam::slamPose pose;

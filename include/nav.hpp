@@ -5,15 +5,23 @@
 #include <array>
 #include <cmath>
 #include <grid_map_core/GridMap.hpp>
-#include <grid_map_pcl/grid_map_pcl.hpp>
+#include <grid_map_core/TypeDefs.hpp>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/SpaceInformation.h>
+#include <ompl/base/State.h>
+#include <ompl/base/StateSpace.h>
 #include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include <rerun/recording_stream.hpp>
+
+namespace ob = ompl::base;
 
 namespace nav {
 
 struct parameters {
   float grid_map_dim[2];
   float grid_map_res;
+  float occupancy_threshold[2];
   std::string layer_name;
   std::string frame_id;
   std::map<std::string, std::array<float, 2>> pass_filter;
@@ -26,6 +34,11 @@ struct navContext {
   grid_map::GridMap *map;
   struct parameters params;
   std::string layer;
+  std::vector<grid_map::Index> occupancy_list;
+  ob::StateSpacePtr space;
+  ob::SpaceInformationPtr si;
+  std::shared_ptr<ob::ScopedState<>> start;
+  std::shared_ptr<ob::ScopedState<>> goal;
 };
 
 parameters loadParameters(const std::string &filename);
@@ -38,5 +51,15 @@ void preProcessPointCloud(navContext *ctx,
 
 void processGridMapCells(navContext *ctx,
                          pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud);
+
+class ValidityChecker : public ob::StateValidityChecker {
+public:
+  navContext *nav_ctx;
+  ValidityChecker(const ob::SpaceInformationPtr &si, navContext *ctx)
+      : ob::StateValidityChecker(si), nav_ctx(ctx) {}
+
+  bool isValid(const ob::State *state) const;
+  double clearance(const ob::State *state) const;
+};
 } // namespace nav
 #endif

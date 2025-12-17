@@ -1,15 +1,58 @@
-#include "nav.hpp"
 #include <cmath>
 #include <grid_map_core/TypeDefs.hpp>
+#include <grid_map_core/iterators/GridMapIterator.hpp>
+#include <memory>
+#include <ompl/base/spaces/RealVectorBounds.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <pcl/common/transforms.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
 #include <spdlog/spdlog.h>
 #include <yaml-cpp/yaml.h>
 
+#include "nav.hpp"
+
 namespace nav {
+
+struct navContext *setupNav(std::string config_file) {
+
+  struct navContext *nav(new navContext());
+
+  nav->params = loadParameters(config_file);
+
+  nav->layer = "elevation";
+
+  nav->map = new grid_map::GridMap({nav->layer});
+
+  nav->map->setFrameId("cost_map");
+
+  nav->map->setGeometry(grid_map::Length(nav->params.grid_map_dim[0],
+                                         nav->params.grid_map_dim[1]),
+                        nav->params.grid_map_res);
+
+  nav->space = std::make_shared<ob::RealVectorStateSpace>(2);
+
+  ob::RealVectorBounds bounds(2);
+  // x-bounds
+  bounds.setLow(0, 0);
+  bounds.setHigh(0, nav->params.grid_map_dim[0]);
+  // y-bounds
+  bounds.setLow(1, 0);
+  bounds.setHigh(1, nav->params.grid_map_dim[1]);
+  // set bounds to state
+  nav->space->as<ob::RealVectorStateSpace>()->setBounds(bounds);
+
+  // allocate SpaceInformation obj
+  nav->si = std::make_shared<ob::SpaceInformation>(nav->space);
+  nav->si->setStateValidityChecker(
+      std::make_shared<ValidityChecker>(nav->si, nav));
+
+  nav->start = std::make_shared<ob::ScopedState<>>(nav->space);
+  nav->goal = std::make_shared<ob::ScopedState<>>(nav->space);
+
+  return nav;
+}
 
 parameters loadParameters(const std::string &filename) {
   parameters params;
@@ -22,6 +65,8 @@ parameters loadParameters(const std::string &filename) {
     params.grid_map_dim[1] = gm["y"].as<float>();
     params.grid_map_res = gm["resolution"].as<float>();
     params.min_grid_points = gm["min_grid_points"].as<int>();
+    params.occupancy_threshold[0] = gm["pos_obstacle_threshold"].as<int>();
+    params.occupancy_threshold[1] = gm["neg_obstacle_threshold"].as<int>();
   }
 
   // Parse Filters
@@ -53,25 +98,6 @@ parameters loadParameters(const std::string &filename) {
   }
 
   return params;
-}
-
-struct navContext *setupNav(std::string config_file) {
-
-  struct navContext *nav(new navContext());
-
-  nav->params = loadParameters(config_file);
-
-  nav->layer = "elevation";
-
-  nav->map = new grid_map::GridMap({nav->layer});
-
-  nav->map->setFrameId("cost_map");
-
-  nav->map->setGeometry(grid_map::Length(nav->params.grid_map_dim[0],
-                                         nav->params.grid_map_dim[1]),
-                        nav->params.grid_map_res);
-
-  return nav;
 }
 
 void preProcessPointCloud(navContext *ctx,
@@ -119,10 +145,10 @@ void processGridMapCells(navContext *ctx,
                          pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud) {
 
   if (pointCloud->points.size() < ctx->params.min_grid_points) {
-    spdlog::info(std::format(
-        "Skipping Elevation Layer: Pointcloud size ({}) is below minimum "
-        "threshold ({})",
-        pointCloud->size(), ctx->params.min_grid_points));
+    spdlog::error(std::format("Unable to create elevation Layer: Pointcloud "
+                              "size ({}) is below minimum "
+                              "threshold ({})",
+                              pointCloud->size(), ctx->params.min_grid_points));
     return;
   }
 
@@ -141,5 +167,46 @@ void processGridMapCells(navContext *ctx,
       }
     }
   }
+
+  // store Indices classified as obstacles
+  for (grid_map::GridMapIterator iterator(*ctx->map); !iterator.isPastEnd();
+       ++iterator) {
+    const grid_map::Index current_index = *iterator;
+    float &elevation = ctx->map->at(ctx->layer, current_index);
+    if (elevation < ctx->params.occupancy_threshold[0] ||
+        elevation > ctx->params.occupancy_threshold[1])
+      ctx->occupancy_list.push_back(current_index);
+  }
+  spdlog::info(std::format("Finished evaluating layer : {}", ctx->layer));
+}
+
+bool ValidityChecker::isValid(const ob::State *state) const {
+  return this->clearance(state) >
+         0.1; // Check obstacle clearance with 0.1m padding for safety
+}
+
+double ValidityChecker::clearance(const ob::State *state) const {
+  // cast state to a R^2 vector
+  const auto *state2D = state->as<ob::RealVectorStateSpace::StateType>();
+
+  // create a position obj for grid_map
+  grid_map::Position position(state2D->values[0], state2D->values[1]);
+
+  // get corresponding index of state position
+  grid_map::Index index;
+  nav_ctx->map->getIndex(position, index);
+
+  // get the closest obstacle
+  grid_map::Index &closest_idx = index;
+  double min_dist;
+  for (auto &i : nav_ctx->occupancy_list) {
+    double dist = sqrt(pow((index(0) - i(0)), 2) + pow((index(1) - i(1)), 2));
+    if (dist < min_dist) {
+      closest_idx = i;
+      min_dist = dist;
+    }
+  }
+  // get elevation value for position
+  return min_dist;
 }
 } // namespace nav
