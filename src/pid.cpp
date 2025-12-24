@@ -1,16 +1,18 @@
 #include "pid.hpp"
+#include <chrono>
 #include <cmath>
 
 namespace control {
 
 struct Pid *initPid(double p, double i, double d) {
   struct Pid *pid = new struct Pid();
-  pid->gains = new struct Pid::Gains(); 
+
+  pid->gains = new struct Pid::Gains();
   pid->errors = new struct Pid::Errors();
 
   pid->gains->p = p;
-  pid->gains->d = d;
   pid->gains->i = i;
+  pid->gains->d = d;
 
   pid->errors->p_error_last = 0;
   pid->errors->p_error = 0;
@@ -18,8 +20,6 @@ struct Pid *initPid(double p, double i, double d) {
   pid->errors->d_error = 0;
   pid->errors->cmd = 0;
   pid->errors->error_dot = 0;
-
-  pid->last_time = 0;
 
   return pid;
 }
@@ -78,3 +78,103 @@ double computeCommand(struct Pid *pid, double error, uint64_t dt) {
   return computeCommandErrorDot(pid, error, pid->errors->error_dot, dt);
 }
 } // namespace control
+
+#ifdef PID_TEST_CPP
+#include <Eigen/Dense>
+#include <iostream>
+#include <librealsense2/h/rs_sensor.h>
+#include <librealsense2/hpp/rs_frame.hpp>
+#include <librealsense2/rs.hpp>
+
+#include "pid.hpp"
+#include "serial.hpp"
+#include "slam.hpp"
+#include "utils.hpp"
+
+int main(int argc, char *argv[]) {
+
+  // slam vars
+  struct slam::slamHandle *slam_handler = new slam::slamHandle();
+  Eigen::Matrix<double, 4, 4> current_pose;
+  Eigen::Matrix<double, 4, 4> res;
+  struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
+
+  // rs vars
+  struct utils::rs_config realsense_config{.height = 640,
+                                           .width = 480,
+                                           .fov = {0, 0},
+                                           .depth_scale = 0.0,
+                                           .fps = 30,
+                                           .enable_imu = false};
+  struct utils::rs_handler *rs_ptr;
+  rs2::frame frame;
+  rs_ptr = utils::setupRealsense(realsense_config);
+  if (not rs_ptr) {
+    std::cout << " Unable to setup Realsense ";
+    return -1;
+  }
+
+  // com vars
+  std::string port = argv[1];
+  boost::asio::io_context io;
+  boost::asio::serial_port *nucleo = serial::open(io, port, 9600);
+
+  // pid vars
+  double p = std::stod(argv[2]);
+  double i = std::stod(argv[3]);
+  double d = std::stod(argv[4]);
+  struct control::Pid *pid = control::initPid(p, i, d);
+
+  float target = std::stod(argv[5]);
+  float linear_x = 0;
+  float angular_z;
+
+  uint64_t previous = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+  while (true) {
+    // fetch frames from realsense
+    frame = rs_ptr->frame_q.wait_for_frame();
+
+    if (rs2::frameset fs = frame.as<rs2::frameset>()) {
+      auto aligned_frames = rs_ptr->align.process(fs);
+
+      rs2::video_frame colorFrame = aligned_frames.first(RS2_STREAM_COLOR);
+      rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
+
+      // get raw frame data
+      frame_raw->colorFrame = colorFrame.get_data();
+      frame_raw->depthFrame = depthFrame.get_data();
+      frame_raw->timestamp = fs.get_timestamp();
+
+      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
+
+      res = slam::runLocalization(frame_cv, slam_handler, NULL);
+
+      current_pose = utils::camera_to_ned_transform * res;
+      auto translations = current_pose.col(3);
+      auto rotations = current_pose.block<3, 3>(0, 0);
+      double yaw = (double)slam::yawfromPose(current_pose);
+
+      uint64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+      angular_z = control::computeCommand(pid, target - yaw, previous - now);
+
+      previous = now;
+
+      std::cout << "Yaw : " << yaw << "Angular_Vel : " << angular_z
+                << std::endl;
+
+      tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
+
+      std::string err =
+          serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
+              nucleo, msg, tarzan::TARZAN_MSG_LEN));
+
+      std::cout << "Error : " << err << std::endl;
+    }
+  }
+  serial::close(nucleo);
+}
+#endif

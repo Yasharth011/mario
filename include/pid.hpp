@@ -11,7 +11,6 @@ struct Pid {
   struct Errors {
     double p_error_last, p_error, i_error, d_error, cmd, error_dot;
   } *errors;
-  uint64_t last_time;
 };
 
 struct Pid *initPid(double p, double i, double d);
