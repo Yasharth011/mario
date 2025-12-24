@@ -79,6 +79,12 @@ if(BUILD_TESTS)
 	target_compile_definitions(utils_test PRIVATE UTILS_TEST_CPP=1)
 	target_include_directories(utils_test PRIVATE utils)
 	target_link_libraries(utils_test PRIVATE utils)
+
+	# pid test
+	add_executable(pid_test src/pid.cpp)
+	target_compile_definitions(pid_test PRIVATE PID_TEST_CPP=1)
+	target_include_directories(pid_test PRIVATE pid slam serial)
+	target_link_libraries(pid_test PRIVATE pid slam serial)
 endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
