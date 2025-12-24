@@ -12,12 +12,6 @@
 #include <yaml-cpp/yaml.h>
 
 #include "nav.hpp"
-<<<<<<< HEAD
-#include <mapping.h>
-#include <pathplanning.h>
-#include <quadtree.h>
-=======
->>>>>>> nav
 
 namespace nav {
 

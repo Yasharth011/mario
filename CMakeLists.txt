@@ -22,13 +22,10 @@ find_package(rerun_sdk REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(stella_vslam REQUIRED)
 find_package(cppzmq 4.11.0 REQUIRED)
-<<<<<<< HEAD
 find_package(spdlog REQUIRED)
-=======
 find_package(grid_map_core REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ompl 1.7.0 REQUIRED)
->>>>>>> nav
 pkg_check_modules(Asio asio)
 pkg_check_modules(Cobs cobs)
 
