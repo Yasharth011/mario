@@ -1,193 +1,215 @@
+#include <cmath>
+#include <grid_map_core/TypeDefs.hpp>
+#include <grid_map_core/iterators/GridMapIterator.hpp>
+#include <memory>
+#include <ompl/base/spaces/RealVectorBounds.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <pcl/common/transforms.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/point_cloud.h>
+#include <spdlog/spdlog.h>
+#include <yaml-cpp/yaml.h>
+
 #include "nav.hpp"
+<<<<<<< HEAD
 #include <mapping.h>
 #include <pathplanning.h>
 #include <quadtree.h>
+=======
+>>>>>>> nav
 
 namespace nav {
 
-std::vector<Eigen::Vector3f>
-processPointCloud(std::vector<Eigen::Vector3f> raw_points) {
+struct navContext *setupNav(std::string config_file) {
 
-  auto pcl_cloud = mapping::convert_to_pcl(raw_points);
+  struct navContext *nav(new navContext());
 
-  pcl::PassThrough<pcl::PointXYZ> passthrough;
-  passthrough.setInputCloud(pcl_cloud);
-  passthrough.setFilterFieldName("z");
-  passthrough.setFilterLimits(0.2, 4.0);
-  passthrough.filter(*pcl_cloud);
+  nav->params = loadParameters(config_file);
 
-  pcl::VoxelGrid<pcl::PointXYZ> voxel;
-  voxel.setInputCloud(pcl_cloud);
-  voxel.setLeafSize(0.02f, 0.02f, 0.02f);
-  voxel.filter(*pcl_cloud);
+  nav->layer = "elevation";
 
-  std::vector<Eigen::Vector3f> filtered_points;
-  filtered_points.reserve(pcl_cloud->points.size());
-  for (const auto &point : pcl_cloud->points) {
-    filtered_points.emplace_back(point.x, point.y, point.z);
-  }
+  nav->map = new grid_map::GridMap({nav->layer});
 
-  return filtered_points;
+  nav->map->setFrameId("cost_map");
+
+  nav->map->setGeometry(grid_map::Length(nav->params.grid_map_dim[0],
+                                         nav->params.grid_map_dim[1]),
+                        nav->params.grid_map_res);
+
+  nav->space = std::make_shared<ob::RealVectorStateSpace>(2);
+
+  ob::RealVectorBounds bounds(2);
+  // x-bounds
+  bounds.setLow(0, 0);
+  bounds.setHigh(0, nav->params.grid_map_dim[0]);
+  // y-bounds
+  bounds.setLow(1, 0);
+  bounds.setHigh(1, nav->params.grid_map_dim[1]);
+  // set bounds to state
+  nav->space->as<ob::RealVectorStateSpace>()->setBounds(bounds);
+
+  // allocate SpaceInformation obj
+  nav->si = std::make_shared<ob::SpaceInformation>(nav->space);
+  nav->si->setStateValidityChecker(
+      std::make_shared<ValidityChecker>(nav->si, nav));
+
+  return nav;
 }
 
-void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
-                const std::vector<Eigen::Vector3f> &points,
-                const rerun::RecordingStream &rec) {
-  mapping::create_gridmap(ctx->gridmap, points, pose, grid_resolution, height,
-                          proxfactor);
+parameters loadParameters(const std::string &filename) {
+  parameters params;
+  YAML::Node config = YAML::LoadFile(filename);
 
-  quadtree::updateQuadtreesWithPointCloud(&(ctx->lowQuadtree),
-                                          &(ctx->midQuadtree),
-                                          &(ctx->highQuadtree), points, pose);
-
-  if (ctx->gridmap.occupancy_grid.size() >= batch_threshold) {
-    nav::log_gridmap(ctx, grid_resolution, rec, pose);
-    batch_threshold += ctx->gridmap.occupancy_grid.size();
+  // Parse Grid Map settings
+  if (config["grid_map"]) {
+    const YAML::Node &gm = config["grid_map"];
+    params.grid_map_dim[0] = gm["x"].as<float>();
+    params.grid_map_dim[1] = gm["y"].as<float>();
+    params.grid_map_res = gm["resolution"].as<float>();
+    params.min_grid_points = gm["min_grid_points"].as<int>();
+    params.occupancy_threshold[0] = gm["pos_obstacle_threshold"].as<int>();
+    params.occupancy_threshold[1] = gm["neg_obstacle_threshold"].as<int>();
   }
-}
 
-std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path) {
-  if (path.empty())
-    return {};
-  std::vector<planning::Node> pruned_path;
-  pruned_path.push_back(path[0]);
-  for (size_t i = 1; i < path.size(); ++i) {
-    if (!(path[i] == path[i - 1])) {
-      pruned_path.push_back(path[i]);
+  // Parse Filters
+  if (config["filters"]) {
+    const YAML::Node &filters = config["filters"];
+
+    params.min_filtering_points = filters["min_filtering_points"].as<int>();
+
+    // Passthrough Filter (Map of arrays)
+    if (filters["passthrough_filter"]) {
+      const YAML::Node &pt = filters["passthrough_filter"];
+
+      for (YAML::const_iterator it = pt.begin(); it != pt.end(); ++it) {
+        std::string axis = it->first.as<std::string>();
+        float min_val = it->second["min_limit"].as<float>();
+        float max_val = it->second["max_limit"].as<float>();
+
+        params.pass_filter[axis] = {min_val, max_val};
+      }
+    }
+
+    // Voxel Filter
+    if (filters["voxel_size"]) {
+      const YAML::Node &vs = filters["voxel_size"];
+      params.voxel_leaf_size[0] = vs["x"].as<float>();
+      params.voxel_leaf_size[1] = vs["y"].as<float>();
+      params.voxel_leaf_size[2] = vs["z"].as<float>();
     }
   }
-  return pruned_path;
+
+  return params;
 }
 
-bool findPath(struct navContext *ctx, std::vector<planning::Node> dense_path) {
-  std::vector<planning::Node> sparse_path =
-      astarsparse(ctx->gridmap, ctx->current_start, ctx->current_goal);
+void preProcessPointCloud(navContext *ctx,
+                          pcl::PointCloud<pcl::PointXYZ>::Ptr rawInputCloud,
+                          const Eigen::Matrix<double, 4, 4> T_matrix) {
 
-  if (sparse_path.empty()) {
-    ctx->dense_path = planning::astarquad(
-        &(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
-        ctx->current_start, ctx->current_goal, 1.0f);
-  } else {
-    ctx->dense_path.push_back(sparse_path[0]);
+  // transform pcl cloud
+  pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud(
+      new pcl::PointCloud<pcl::PointXYZ>());
+  pcl::transformPointCloud(*rawInputCloud, *transformed_cloud, T_matrix);
 
-    for (size_t i = 1; i < sparse_path.size(); ++i) {
-      std::vector<planning::Node> segment = planning::astarquad(
-          &(ctx->lowQuadtree), &(ctx->midQuadtree), &(ctx->highQuadtree),
-          sparse_path[i - 1], sparse_path[i], 1.0f);
+  // filtering
+  if (rawInputCloud->size() < ctx->params.min_filtering_points) {
+    spdlog::info(
+        std::format("Skipping filters: Pointcloud size ({}) is below minimum "
+                    "threshold ({})",
+                    rawInputCloud->size(), ctx->params.min_filtering_points));
+    return;
+  }
 
-      if (!segment.empty()) {
-        ctx->dense_path.insert(ctx->dense_path.end(), segment.begin() + 1,
-                               segment.end());
+  spdlog::info(
+      std::format("Before filtering: {} points", rawInputCloud->size()));
+
+  pcl::PassThrough<pcl::PointXYZ> passthrough_filter;
+
+  for (auto filter : ctx->params.pass_filter) {
+    passthrough_filter.setInputCloud(rawInputCloud);
+    passthrough_filter.setFilterFieldName(filter.first);
+    passthrough_filter.setFilterLimits(filter.second[0], filter.second[1]);
+    passthrough_filter.filter(*rawInputCloud);
+  }
+
+  pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+  voxel_filter.setInputCloud(rawInputCloud);
+  voxel_filter.setLeafSize(ctx->params.voxel_leaf_size[0],
+                           ctx->params.voxel_leaf_size[1],
+                           ctx->params.voxel_leaf_size[2]);
+  voxel_filter.filter(*rawInputCloud);
+
+  spdlog::info(
+      std::format("After filtering: {} points", rawInputCloud->size()));
+};
+
+void processGridMapCells(navContext *ctx,
+                         pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud) {
+
+  if (pointCloud->points.size() < ctx->params.min_grid_points) {
+    spdlog::error(std::format("Unable to create elevation Layer: Pointcloud "
+                              "size ({}) is below minimum "
+                              "threshold ({})",
+                              pointCloud->size(), ctx->params.min_grid_points));
+    return;
+  }
+
+  grid_map::Matrix &elevation_data = ctx->map->get(ctx->layer);
+
+  for (const auto &point : pointCloud->points) {
+
+    grid_map::Position position(point.x, point.y);
+
+    grid_map::Index index;
+    if (ctx->map->getIndex(position, index)) {
+      float &cell_height = elevation_data(index(0), index(1));
+
+      if (std::isnan(cell_height) || point.z > cell_height) {
+        cell_height = point.z;
       }
     }
   }
-  return !ctx->dense_path.empty();
+
+  // store Indices classified as obstacles
+  for (grid_map::GridMapIterator iterator(*ctx->map); !iterator.isPastEnd();
+       ++iterator) {
+    const grid_map::Index current_index = *iterator;
+    float &elevation = ctx->map->at(ctx->layer, current_index);
+    if (elevation < ctx->params.occupancy_threshold[0] ||
+        elevation > ctx->params.occupancy_threshold[1])
+      ctx->occupancy_list.push_back(current_index);
+  }
+  spdlog::info(std::format("Finished evaluating layer : {}", ctx->layer));
 }
 
-bool findCurrentGoal(nav::navContext *ctx) {
+bool ValidityChecker::isValid(const ob::State *state) const {
+  return this->clearance(state) >
+         0.1; // Check obstacle clearance with 0.1m padding for safety
+}
 
-  planning::Node best_node = ctx->current_start;
+double ValidityChecker::clearance(const ob::State *state) const {
+  // cast state to a R^2 vector
+  const auto *state2D = state->as<ob::RealVectorStateSpace::StateType>();
 
-  double best_score = std::numeric_limits<double>::max();
-  bool found = false;
-  int margin = 6;
+  // create a position obj for grid_map
+  grid_map::Position position(state2D->values[0], state2D->values[1]);
 
-  for (int x = ctx->current_start.x - margin;
-       x <= ctx->current_start.x + margin; ++x) {
-    for (int y = ctx->current_start.y; y <= ctx->current_start.y + margin;
-         ++y) {
-      std::pair<int, int> cell = {x, y};
-      planning::Node candidate(x, y);
+  // get corresponding index of state position
+  grid_map::Index index;
+  nav_ctx->map->getIndex(position, index);
 
-      if (x < ctx->gridmap.min_x || x > ctx->gridmap.max_x ||
-          y < ctx->gridmap.min_y || y > ctx->gridmap.max_y)
-        continue;
-      if (ctx->gridmap.occupancy_grid.count(cell) ||
-          ctx->visited_nodes.count(cell) || ctx->failed_goals.count(cell))
-        continue;
-      if (std::find(ctx->recent_goals.begin(), ctx->recent_goals.end(),
-                    candidate) != ctx->recent_goals.end())
-        continue;
-
-      double angle_to_node =
-          atan2(y - ctx->current_start.y, x - ctx->current_start.x);
-      double angle_to_goal = atan2(ctx->final_goal.y - ctx->current_start.y,
-                                   ctx->final_goal.x - ctx->current_start.x);
-      double angle_diff = fabs(angle_to_node - angle_to_goal);
-      if (angle_diff > M_PI)
-        angle_diff = 2 * M_PI - angle_diff;
-      if (angle_diff > M_PI / 3)
-        continue; // only the starting arc in front of the rover.
-
-      double dist_from_start =
-          planning::heuristic(ctx->current_start.x, ctx->current_start.y, x, y);
-      if (dist_from_start < 1.0)
-        continue;
-
-      double obstacle_cost = ctx->gridmap.occupancy_grid.count(cell)
-                                 ? ctx->gridmap.occupancy_grid.at(cell).cost
-                                 : 0.0;
-      double alignment_penalty = angle_diff * 2.0;
-      double score =
-          dist_from_start +
-          planning::heuristic(x, y, ctx->final_goal.x, ctx->final_goal.y) +
-          obstacle_cost + alignment_penalty;
-
-      if (score < best_score) {
-        best_score = score;
-        best_node = candidate;
-        found = true;
-      }
+  // get the closest obstacle
+  grid_map::Index &closest_idx = index;
+  double min_dist;
+  for (auto &i : nav_ctx->occupancy_list) {
+    double dist = sqrt(pow((index(0) - i(0)), 2) + pow((index(1) - i(1)), 2));
+    if (dist < min_dist) {
+      closest_idx = i;
+      min_dist = dist;
     }
   }
-
-  if (found) {
-    ctx->recent_goals.push_back(best_node);
-    if (ctx->recent_goals.size() > 10)
-      ctx->recent_goals.pop_front();
-    ctx->current_goal = best_node;
-    return true;
-  }
-  ctx->current_goal = ctx->current_start;
-  return false;
-}
-
-void log_gridmap(struct navContext *ctx, float grid_resolution,
-                 const rerun::RecordingStream &rec,
-                 const mapping::Slam_Pose &pose) {
-  float min_x = (pose.x - 5.0f) / grid_resolution;
-  float max_x = (pose.x + 5.0f) / grid_resolution;
-  float min_y = (pose.y - 5.0f) / grid_resolution;
-  float max_y = (pose.y + 5.0) / grid_resolution;
-  float scale_factor = 1000.0f; // Put 1000 so that it is in mm
-  std::cout << "Occupancy grid size: " << ctx->gridmap.occupancy_grid.size()
-            << std::endl;
-  if (ctx->gridmap.occupancy_grid.empty()) {
-    std::cout << "Error: Occupancy grid is empty!" << std::endl;
-  } else {
-    std::cout << "Occupancy grid has data!" << std::endl;
-  }
-  std::vector<rerun::Color> colors;
-  std::vector<rerun::Position3D> roverposition;
-
-  for (const auto &entry : ctx->gridmap.occupancy_grid) {
-    const auto &[coord, value] = entry;
-    float grid_x = coord.first;
-    float grid_y = coord.second;
-
-    rerun::Color color = mapping::get_color_for_cost(value);
-
-    std::vector<rerun::Position3D> points = {
-        rerun::Position3D{grid_x, grid_y, 0.0f}};
-
-    colors.push_back(color);
-    std::string cell_id = "gridcell_(" + std::to_string(grid_x) + "," +
-                          std::to_string(grid_y) + ")_" +
-                          std::to_string(value.cost);
-    std::string tag = "grid_map" + cell_id;
-    rec.log(tag,
-            rerun::Points3D(points).with_colors({color}).with_radii({0.5f}));
-  }
-  colors.clear();
+  // get elevation value for position
+  return min_dist;
 }
 } // namespace nav

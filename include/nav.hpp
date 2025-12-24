@@ -2,68 +2,62 @@
 #define NAV_HPP
 
 #include <Eigen/Dense>
+#include <array>
 #include <cmath>
-#include <mapping.h>
-#include <pathplanning.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/voxel_grid.h>
+#include <grid_map_core/GridMap.hpp>
+#include <grid_map_core/TypeDefs.hpp>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/SpaceInformation.h>
+#include <ompl/base/State.h>
+#include <ompl/base/StateSpace.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <quadtree.h>
-#include <rerun/recording_stream.hpp>
+
+namespace ob = ompl::base;
 
 namespace nav {
 
-inline int batch_threshold = 1;
-inline float grid_resolution = 0.02f;
-inline float height = 1.0f;
-inline float proxfactor = 0.2f;
-inline int map_limit = 20;
-inline mapping::Point center;
-inline float rootSize;
-
-struct navContext {
-  mapping::Gridmap gridmap;
-  quadtree::QuadtreeNode lowQuadtree;
-  quadtree::QuadtreeNode midQuadtree;
-  quadtree::QuadtreeNode highQuadtree;
-  planning::Node start;
-  planning::Node goal;
-  planning::Node current_start;
-  planning::Node current_goal;
-  planning::Node final_goal;
-  std::vector<planning::Node> full_path;
-  std::set<std::pair<int, int>> visited_nodes;
-  std::set<std::pair<int, int>> failed_goals;
-  std::deque<planning::Node> recent_goals;
-  std::vector<planning::Node> dense_path;
-  std::vector<planning::Node> pruned_path;
-
-  navContext()
-      : gridmap(), lowQuadtree(center, rootSize, 1),
-        midQuadtree(center, rootSize, 1), highQuadtree(center, rootSize, 1),
-        start(0, 0), goal(0, 0), current_start(0, 0), current_goal(0, 0),
-        final_goal(0, 0), full_path(), visited_nodes(), failed_goals(),
-        recent_goals(), dense_path(), pruned_path() {}
+struct parameters {
+  float grid_map_dim[2];
+  float grid_map_res;
+  float occupancy_threshold[2];
+  std::string layer_name;
+  std::string frame_id;
+  std::map<std::string, std::array<float, 2>> pass_filter;
+  float voxel_leaf_size[3];
+  float min_filtering_points;
+  float min_grid_points;
 };
 
-std::vector<Eigen::Vector3f>
-processPointCloud(std::vector<Eigen::Vector3f> raw_points);
+struct navContext {
+  grid_map::GridMap *map;
+  struct parameters params;
+  std::string layer;
+  std::vector<grid_map::Index> occupancy_list;
+  ob::StateSpacePtr space;
+  ob::SpaceInformationPtr si;
+};
 
-void updateMaps(struct navContext *ctx, struct mapping::Slam_Pose &pose,
-                const std::vector<Eigen::Vector3f> &points,
-                const rerun::RecordingStream &rec);
+parameters loadParameters(const std::string &filename);
 
-std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
+struct navContext *setupNav(std::string config_file);
 
-bool findCurrentGoal(nav::navContext *ctx);
+void preProcessPointCloud(navContext *ctx,
+                          pcl::PointCloud<pcl::PointXYZ>::Ptr rawInputCloud,
+                          const Eigen::Matrix<double, 4, 4> T_matrix);
 
-bool findPath(navContext *ctx, std::vector<planning::Node> &dense_path);
+void processGridMapCells(navContext *ctx,
+                         pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud);
 
-std::vector<planning::Node> prunePath(const std::vector<planning::Node> &path);
+class ValidityChecker : public ob::StateValidityChecker {
+public:
+  navContext *nav_ctx;
+  ValidityChecker(const ob::SpaceInformationPtr &si, navContext *ctx)
+      : ob::StateValidityChecker(si), nav_ctx(ctx) {}
 
-void log_gridmap(struct navContext *ctx, float grid_resolution,
-                 const rerun::RecordingStream &rec,
-                 const struct mapping::Slam_Pose &pose);
+  bool isValid(const ob::State *state) const;
+  double clearance(const ob::State *state) const;
+};
 } // namespace nav
 #endif

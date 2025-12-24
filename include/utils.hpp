@@ -36,7 +36,7 @@ enum Error : uint8_t {
   NoFrameset,
 };
 
-const Eigen::Matrix<double, 4, 4> camera_to_ned_transform{
+const Eigen::Matrix<double, 4, 4> T_camera_to_ned{
     {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
 
 struct rs_handler *setupRealsense(struct rs_config config);
