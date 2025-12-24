@@ -48,9 +48,6 @@ struct navContext *setupNav(std::string config_file) {
   nav->si->setStateValidityChecker(
       std::make_shared<ValidityChecker>(nav->si, nav));
 
-  nav->start = std::make_shared<ob::ScopedState<>>(nav->space);
-  nav->goal = std::make_shared<ob::ScopedState<>>(nav->space);
-
   return nav;
 }
 

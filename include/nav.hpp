@@ -10,6 +10,7 @@
 #include <ompl/base/SpaceInformation.h>
 #include <ompl/base/State.h>
 #include <ompl/base/StateSpace.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <rerun/recording_stream.hpp>
@@ -37,8 +38,6 @@ struct navContext {
   std::vector<grid_map::Index> occupancy_list;
   ob::StateSpacePtr space;
   ob::SpaceInformationPtr si;
-  std::shared_ptr<ob::ScopedState<>> start;
-  std::shared_ptr<ob::ScopedState<>> goal;
 };
 
 parameters loadParameters(const std::string &filename);
