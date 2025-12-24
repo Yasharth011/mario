@@ -183,7 +183,7 @@ struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z) {
   uint32_t crc = serial::crc32_ieee(
       (uint8_t *)&msg, sizeof(struct tarzan::tarzan_msg) - sizeof(msg.crc));
 
-  msg = {.cmd = cmd, .inv = {0}, .imu = {0}, .crc = crc};
+  msg = {.cmd = cmd, .crc = crc};
 
   // tarzan msg
   return msg;
@@ -192,23 +192,20 @@ struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z) {
 
 #ifdef SERIAL_TEST_CPP
 #include <iostream>
-
 int main(int argc, char *argv[]) {
 
   std::string port = argv[1];
   boost::asio::io_context io;
   boost::asio::serial_port *nucleo = serial::open(io, port, 9600);
 
-  float linear_x = 1.0;
-  float angular_z = 0.5;
+  float linear_x = std::stof(argv[2]);
+  float angular_z = std::stof(argv[3]);
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
   std::string err =
       serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
           nucleo, msg, tarzan::TARZAN_MSG_LEN));
 
-  std::cout << "Error : " << err;
-
-  serial::close(nucleo);
+  std::cout << "Message : " << err << std::endl;
 }
 #endif

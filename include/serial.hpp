@@ -4,6 +4,7 @@
 #include <boost/asio.hpp>
 #include <cobs.h>
 #include <cstdint>
+#include <iostream>
 #include <stdint.h>
 
 using namespace boost::asio;
@@ -74,34 +75,7 @@ const char *get_error(enum Error err);
 }; // namespace serial
 
 namespace tarzan {
-/* extra msg for Tarzan msg */
-enum msg_type { AUTONOMOUS, INVERSE, IMU };
-
-struct inverse_msg {
-  double turn_table;
-  double first_link;
-  double second_link;
-  double pitch;
-  double roll;
-  double x;
-  double y;
-  double z;
-};
-
-struct imu_data {
-  double accel[3];
-  double gyro[3];
-  double mag[3];
-  double gyro_offset[3];
-};
-
-struct imu_msg {
-  struct imu_data baseLink;
-  struct imu_data firstLink;
-  struct imu_data secondLink;
-  struct imu_data differential;
-};
-
+/* msg for Tarzan msg */
 struct DiffDriveTwist {
   float linear_x;
   float angular_z;
@@ -109,9 +83,6 @@ struct DiffDriveTwist {
 
 struct tarzan_msg {
   struct DiffDriveTwist cmd;
-  struct inverse_msg inv;
-  struct imu_msg imu;
-  enum msg_type type;
   uint32_t crc;
 };
 
@@ -119,5 +90,6 @@ constexpr size_t TARZAN_MSG_LEN = sizeof(tarzan_msg) + 2; // tarzan message len
 
 // construct tarzan message
 struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z);
+
 }; // namespace tarzan
 #endif
