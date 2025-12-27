@@ -75,6 +75,20 @@ const char *get_error(enum Error err);
 }; // namespace serial
 
 namespace tarzan {
+
+/* msg for GPS & heading */
+struct geodetic {
+  double lat;
+  double lon;
+  double alt;
+  double head;
+};
+
+struct geodetic_msg {
+  struct geodetic geo_data;
+  uint32_t crc;
+};
+
 /* msg for Tarzan msg */
 struct DiffDriveTwist {
   float linear_x;
@@ -87,6 +101,7 @@ struct tarzan_msg {
 };
 
 constexpr size_t TARZAN_MSG_LEN = sizeof(tarzan_msg) + 2; // tarzan message len
+constexpr size_t GEODETIC_MSG_LEN = sizeof(geodetic_msg) + 2; // geodetic message len  
 
 // construct tarzan message
 struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z);
