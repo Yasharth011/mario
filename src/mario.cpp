@@ -1,7 +1,6 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
-#include <cstring>
 #include <format>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
@@ -18,10 +17,6 @@
 #include <sys/types.h>
 #include <taskflow/taskflow.hpp>
 #include <thread>
-#include <yasmin/blackboard/blackboard.hpp>
-#include <yasmin/logs.hpp>
-#include <yasmin/state.hpp>
-#include <yasmin/state_machine.hpp>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
@@ -33,49 +28,8 @@
 
 namespace po = boost::program_options;
 
-// define blackboard keys
-const std::string path_planning_flag = "plan_path";
-
-class Navigate : public yasmin::State {
-
-private:
-  struct mapping::Slam_Pose pose;
-
-public:
-  Navigate() : yasmin::State({"IDLE"}) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-    return "IDLE";
-  }
-};
-
-class Idle : public yasmin::State {
-
-public:
-  boost::asio::serial_port *nucleo;
-  struct nav::navContext *nav_ctx;
-
-  Idle(boost::asio::serial_port *serial, nav::navContext *ctx)
-      : yasmin::State({"NAVIGATE", "IDLE", "EXPLORE"}), nucleo(serial),
-        nav_ctx(ctx) {};
-
-  std::string
-  execute(std::shared_ptr<yasmin::blackboard::Blackboard> blackboard) override {
-
-    // write stop command to nucleo
-    tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(0.0, 0.0);
-    std::string err =
-        serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
-            nucleo, msg, tarzan::TARZAN_MSG_LEN));
-    return "IDLE";
-  }
-};
-
 int main(int argc, char *argv[]) {
-
   spdlog::set_level(spdlog::level::info);
-
   // Command Line Options
   po::options_description desc("Allowed Options");
 
@@ -84,7 +38,10 @@ int main(int argc, char *argv[]) {
       "br", po::value<int>(),
       "baudrate for com with controller")("rerun_ip", po::value<std::string>(),
                                           "ip address of remote rerun viewer")(
-      "gridmap_config", po::value<std::string>(), "gridmap parameters file");
+      "gridmap_config", po::value<std::string>(),
+      "gridmap parameters file")("p", po::value<double>(), "proportional gain")(
+      "i", po::value<double>(), "integral gain")("d", po::value<double>(),
+                                                 "differential gain");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -109,12 +66,6 @@ int main(int argc, char *argv[]) {
   std::string topic_timestamp = "timestamp";
   std::string topic_pcl_header = "pcl_header";
   std::string topic_pointcloud = "point_cloud";
-
-  /* Yasmin vars */
-  auto sm = std::make_shared<yasmin::StateMachine>(
-      std::initializer_list<std::string>{"IDLE"}); // state machine obj
-  auto blackboard =
-      std::make_shared<yasmin::blackboard::Blackboard>(); // init blackboard
 
   /* realsense vars */
   struct utils::rs_config realsense_config{.height = 640,
@@ -151,9 +102,8 @@ int main(int argc, char *argv[]) {
 
   /* pid vars */
   struct control::Pid *pid_ctx;
-  pid_ctx = control::initPid(vm["proportional"].as<double>(),
-                             vm["integral"].as<double>(),
-                             vm["differential"].as<double>());
+  pid_ctx = control::initPid(vm["p"].as<double>(), vm["i"].as<double>(),
+                             vm["d"].as<double>());
 
   /* CONFIGURING REALSENSE */
   // init realsense handler
@@ -174,25 +124,6 @@ int main(int argc, char *argv[]) {
   // open nucleo com
   nucleo = serial::open(io, SERIAL_PORT, BAUDRATE);
   spdlog::info(std::format("Succesfull connection to {}", SERIAL_PORT.c_str()));
-
-  /* CONFIGURING STATE MACHINE */
-  // Add states to the state machine
-  sm->add_state("Navigate", std::make_shared<Navigate>(), {{"IDLE", "Idle"}});
-
-  sm->add_state("Explore",
-                std::make_shared<Explore>(nucleo, nav_ctx, pid_ctx, poseQueue),
-                {{"IDLE", "Idle"}});
-
-  sm->add_state(
-      "Idle", std::make_shared<Idle>(nucleo, nav_ctx),
-      {{"NAVIGATE", "Navigate"}, {"EXPLORE", "Explore"}, {"IDLE", "Idle"}});
-
-  // set start of FSM as IDLE STATE
-  sm->set_start_state("Idle");
-  // set blacboard variables
-  blackboard->set<bool>(path_planning_flag, false);
-  // redirect yasmin logger to spdlogger
-  yasmin::set_loggers(utils::yasmin_to_spdlog);
 
   /* CONFIGURING ZMQ SOCKETS */
   // binding publisher
@@ -229,237 +160,199 @@ int main(int argc, char *argv[]) {
   /* CONFIGURING RERUN */
   rec.connect_grpc(rerun_url).exit_on_failure();
 
-  /* TASK FLOW GRAPH */
-  auto capture_frame =
-      taskflow
-          .emplace([&]() {
-            while (true) {
-              int ret; // error ret var
+  // capture frame
+  std::thread capture_frame([&]() {
+    while (true) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      int ret; // error ret var
 
-              // fetch frames from realsense
-              frame = rs_ptr->frame_q.wait_for_frame();
+      // fetch frames from realsense
+      frame = rs_ptr->frame_q.wait_for_frame();
 
-              if (rs2::frameset fs = frame.as<rs2::frameset>()) {
-                auto aligned_frames = rs_ptr->align.process(fs);
+      if (rs2::frameset fs = frame.as<rs2::frameset>()) {
+        auto aligned_frames = rs_ptr->align.process(fs);
 
-                rs2::video_frame colorFrame =
-                    aligned_frames.first(RS2_STREAM_COLOR);
-                rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
+        rs2::video_frame colorFrame = aligned_frames.first(RS2_STREAM_COLOR);
+        rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
 
-                // get raw frame data
-                const void *raw_colorFrame = colorFrame.get_data();
-                const void *raw_depthFrame = depthFrame.get_data();
+        // get raw frame data
+        const void *raw_colorFrame = colorFrame.get_data();
+        const void *raw_depthFrame = depthFrame.get_data();
 
-                // get length of frames
-                size_t colorFrame_len = colorFrame.get_data_size();
-                size_t depthFrame_len = depthFrame.get_data_size();
+        // get length of frames
+        size_t colorFrame_len = colorFrame.get_data_size();
+        size_t depthFrame_len = depthFrame.get_data_size();
 
-                double timestamp = fs.get_timestamp();
+        double timestamp = fs.get_timestamp();
 
-                // get raw point cloud data and convert to pcl cloud
-                rs2::points points = rs_ptr->pc.calculate(depthFrame);
+        // get raw point cloud data and convert to pcl cloud
+        rs2::points points = rs_ptr->pc.calculate(depthFrame);
 
-                // set point cloud vertices
-                const rs2::vertex *vertices = points.get_vertices();
-                std::vector<float> vertices_vector;
-                for (size_t i = 0; i < points.size(); i++) {
-                  vertices_vector.push_back(vertices[i].x);
-                  vertices_vector.push_back(vertices[i].y);
-                  vertices_vector.push_back(vertices[i].z);
-                }
+        // set point cloud vertices
+        const rs2::vertex *vertices = points.get_vertices();
+        std::vector<float> vertices_vector;
+        for (size_t i = 0; i < points.size(); i++) {
+          vertices_vector.push_back(vertices[i].x);
+          vertices_vector.push_back(vertices[i].y);
+          vertices_vector.push_back(vertices[i].z);
+        }
 
-                // publishing messages
-                ret = utils::publish_msg(
-                    pub, topic_color, [raw_colorFrame, colorFrame_len]() {
-                      zmq::message_t msg(colorFrame_len);
-                      memcpy(msg.data(), raw_colorFrame, colorFrame_len);
-                      return msg;
-                    });
-                if (!ret)
-                  spdlog::error("Error Publishing: topic_color");
+        // publishing messages
+        ret = utils::publish_msg(
+            pub, topic_color, [raw_colorFrame, colorFrame_len]() {
+              zmq::message_t msg(colorFrame_len);
+              memcpy(msg.data(), raw_colorFrame, colorFrame_len);
+              return msg;
+            });
+        if (!ret)
+          spdlog::error("Error Publishing: topic_color");
 
-                ret = utils::publish_msg(
-                    pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
-                      zmq::message_t msg(depthFrame_len);
-                      memcpy(msg.data(), raw_depthFrame, depthFrame_len);
-                      return msg;
-                    });
-                if (!ret)
-                  spdlog::error("Error Publishing: topic_depth");
+        ret = utils::publish_msg(
+            pub, topic_depth, [raw_depthFrame, depthFrame_len]() {
+              zmq::message_t msg(depthFrame_len);
+              memcpy(msg.data(), raw_depthFrame, depthFrame_len);
+              return msg;
+            });
+        if (!ret)
+          spdlog::error("Error Publishing: topic_depth");
 
-                ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
-                  std::string timestamp_string = std::to_string(timestamp);
-                  zmq::message_t msg(timestamp_string.size());
-                  memcpy(msg.data(), timestamp_string.data(),
-                         timestamp_string.size());
-                  return msg;
-                });
-                if (!ret)
-                  spdlog::error("Error Publishing: topic_timestamp");
+        ret = utils::publish_msg(pub, topic_timestamp, [timestamp]() {
+          std::string timestamp_string = std::to_string(timestamp);
+          zmq::message_t msg(timestamp_string.size());
+          memcpy(msg.data(), timestamp_string.data(), timestamp_string.size());
+          return msg;
+        });
+        if (!ret)
+          spdlog::error("Error Publishing: topic_timestamp");
 
-                ret = utils::publish_msg(pub, topic_pointcloud,
-                                         [vertices_vector]() {
-                                           zmq::message_t msg(vertices_vector);
-                                           return msg;
-                                         });
-                if (!ret)
-                  spdlog::error("Error Publishing: topic_pointcloud");
-              }
-              // return 0;
-            }
-            return 0;
-          })
-          .name("capture_frame");
-
-  // slam task
-  auto slam =
-      taskflow
-          .emplace([&]() {
-            while (true) {
-              std::vector<zmq::message_t> colorFrame_msg;
-              std::vector<zmq::message_t> depthFrame_msg;
-              std::vector<zmq::message_t> timestamp_msg;
-
-              zmq::recv_result_t result_color = zmq::recv_multipart(
-                  slam_sub, std::back_inserter(colorFrame_msg));
-              zmq::recv_result_t result_depth = zmq::recv_multipart(
-                  slam_sub, std::back_inserter(depthFrame_msg));
-              zmq::recv_result_t result_timestamp = zmq::recv_multipart(
-                  slam_sub, std::back_inserter(timestamp_msg));
-
-              // check if recvd message is corrupt
-              if (!result_color.has_value() || !result_depth.has_value() ||
-                  !result_timestamp.has_value())
-                continue;
-
-              struct slam::rawColorDepthPair *frame_raw =
-                  new slam::rawColorDepthPair();
-
-              frame_raw->colorFrame = colorFrame_msg[1].data();
-              frame_raw->depthFrame = depthFrame_msg[1].data();
-
-              std::string timestamp_string;
-              memcpy(timestamp_string.data(), timestamp_msg[1].data(),
-                     sizeof(timestamp_msg[1].data()));
-              double timestamp = std::stod(timestamp_string);
-              frame_raw->timestamp = timestamp;
-
-              struct slam::RGBDFrame *frame_cv =
-                  slam::getColorDepthPair(frame_raw);
-
-              res = slam::runLocalization(frame_cv, slam_handler, &rec);
-
-              current_pose = utils::T_camera_to_ned * res;
-              auto translations = current_pose.col(3);
-              auto rotations = current_pose.block<3, 3>(0, 0);
-
-              // log to rerun
-              std::string coordinates =
-                  std::format("x:{} y:{} z:{}", translations.x(),
-                              translations.y(), translations.z());
-              rec.log("RoverPose", rerun::TextLog(coordinates));
-
-              // lock pose and write
-              struct slam::slamPose pose = {
-                  .x = float(translations.x()),
-                  .y = float(translations.y()),
-                  .z = float(translations.z()),
-                  .yaw = slam::yawfromPose(current_pose)};
-              // insert slam pose to queue
-              poseQueue.produce(std::move(pose));
-              // return 0;
-            }
-          })
-          .name("slam");
-
-  // mapping task
-  auto mapping =
-      taskflow
-          .emplace([&]() {
-            while (true) {
-              std::vector<zmq::message_t> pointcloud_msg;
-
-              zmq::recv_result_t result_pointcloud = zmq::recv_multipart(
-                  mapping_sub, std::back_inserter(pointcloud_msg));
-
-              // check if recvd message is corrupt
-              if (!result_pointcloud.has_value())
-                continue;
-
-              std::vector<float> points_buffer;
-              points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
-              std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
-                          pointcloud_msg[1].size());
-              int buffer_size =
-                  std::ceil(points_buffer.size() /
-                            3); //  ceil -> buffer_size is not bigger
-                                // than cloud size (=buffer_size/3)
-
-              pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(
-                  new pcl::PointCloud<pcl::PointXYZ>());
-              cloud->width = buffer_size; // header.width;
-              cloud->height = 1;          // header.height;
-              cloud->is_dense = false;
-              cloud->points.resize(buffer_size);
-
-              for (auto i = 0; i < buffer_size; i += 3) {
-                cloud->points[i].x = points_buffer[i];
-                cloud->points[i].y = points_buffer[i + 1];
-                cloud->points[i].z = points_buffer[i + 2];
-                spdlog::debug(std::format("{} {} {}", cloud->points[i].x,
-                                          cloud->points[i].y,
-                                          cloud->points[i].z));
-              }
-              struct slam::slamPose pose;
-              if (!poseQueue.consume(pose)) {
-                spdlog::error("Unable to fetch data from Pose Queue");
-                continue;
-              }
-
-              float yaw_cos = std::cos(pose.yaw);
-              float yaw_sin = std::sin(pose.yaw);
-              // camera to ned transformation matrix
-              const Eigen::Matrix<double, 4, 4> T_camera_to_map{
-                  {yaw_sin, 0, yaw_cos, pose.x},
-                  {-yaw_cos, 0, yaw_sin, pose.y},
-                  {0, -1, 0, pose.z},
-                  {0, 0, 0, 1}};
-
-              // filter point cloud
-              nav::preProcessPointCloud(nav_ctx, cloud, T_camera_to_map);
-
-              // process grid map layer
-              nav::processGridMapCells(nav_ctx, cloud);
-
-              // return 0;
-            }
-          })
-          .name("mapping");
-
-  // define task graph
-  capture_frame.precede(slam);
-  slam.precede(mapping);
-
-  // state machine task
-  executor.silent_async([&]() {
-    try {
-      std::string outcome = (*sm.get())(blackboard);
-      spdlog::info(std::format("YASMIN OUTCOME : {}", outcome));
-    } catch (const std::exception &e) {
-      spdlog::error(e.what());
+        ret = utils::publish_msg(pub, topic_pointcloud, [vertices_vector]() {
+          zmq::message_t msg(vertices_vector);
+          return msg;
+        });
+        if (!ret)
+          spdlog::error("Error Publishing: topic_pointcloud");
+      }
     }
   });
 
-  while (true) {
-    try {
-      executor.run(taskflow).wait();
-    } catch (const std::exception &e) {
-      spdlog::info(std::format("Exception: {}", e.what()));
-    }
-  }
-  // }
+  // slam
+  std::thread slam([&]() {
+    while (true) {
+      std::vector<zmq::message_t> colorFrame_msg;
+      std::vector<zmq::message_t> depthFrame_msg;
+      std::vector<zmq::message_t> timestamp_msg;
 
-  executor.wait_for_all();
+      zmq::recv_result_t result_color =
+          zmq::recv_multipart(slam_sub, std::back_inserter(colorFrame_msg));
+      zmq::recv_result_t result_depth =
+          zmq::recv_multipart(slam_sub, std::back_inserter(depthFrame_msg));
+      zmq::recv_result_t result_timestamp =
+          zmq::recv_multipart(slam_sub, std::back_inserter(timestamp_msg));
+
+      // check if recvd message is corrupt
+      if (!result_color.has_value() || !result_depth.has_value() ||
+          !result_timestamp.has_value()) {
+        continue;
+      }
+
+      struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
+
+      frame_raw->colorFrame = colorFrame_msg[1].data();
+      frame_raw->depthFrame = depthFrame_msg[1].data();
+      frame_raw->timestamp = std::stod(timestamp_msg[1].to_string());
+
+      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
+
+      res = slam::runLocalization(frame_cv, slam_handler, &rec);
+
+      current_pose = utils::T_camera_base * res;
+      auto translations = current_pose.col(3);
+      auto rotations = current_pose.block<3, 3>(0, 0);
+
+      // log to rerun
+      std::string coordinates = std::format("x:{} y:{} yaw:{}", translations.x(),
+                                            translations.y(), slam::yawfromPose(current_pose));
+      rec.log("RoverPose", rerun::TextLog(coordinates));
+      spdlog::debug(coordinates);
+
+      // lock pose and write
+      struct slam::slamPose pose = {.x = float(translations.x()),
+                                    .y = float(translations.y()),
+                                    .z = float(translations.z()),
+                                    .yaw = slam::yawfromPose(current_pose)};
+      // insert slam pose to queue
+      poseQueue.produce(std::move(pose));
+    }
+  });
+
+  // mapping
+  std::thread mapping([&]() {
+    while (true) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      std::vector<zmq::message_t> pointcloud_msg;
+
+      zmq::recv_result_t result_pointcloud =
+          zmq::recv_multipart(mapping_sub, std::back_inserter(pointcloud_msg));
+
+      // check if recvd message is corrupt
+      if (!result_pointcloud.has_value())
+        continue;
+
+      std::vector<float> points_buffer;
+      points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
+      std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
+                  pointcloud_msg[1].size());
+      int buffer_size = std::ceil(points_buffer.size() /
+                                  3); //  ceil -> buffer_size is not bigger
+                                      // than cloud size (=buffer_size/3)
+
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(
+          new pcl::PointCloud<pcl::PointXYZ>());
+      cloud->width = buffer_size; // header.width;
+      cloud->height = 1;          // header.height;
+      cloud->is_dense = false;
+      cloud->points.resize(buffer_size);
+
+      for (auto i = 0; i < buffer_size; i += 3) {
+        cloud->points[i].x = points_buffer[i];
+        cloud->points[i].y = points_buffer[i + 1];
+        cloud->points[i].z = points_buffer[i + 2];
+        spdlog::debug(std::format("{} {} {}", cloud->points[i].x,
+                                  cloud->points[i].y, cloud->points[i].z));
+      }
+      struct slam::slamPose pose;
+      if (!poseQueue.consume(pose)) {
+        spdlog::error("Unable to fetch data from Pose Queue");
+        continue;
+      }
+
+      /* transformation for pointcloud :-
+      rotation to base link (FLU)
+      translation to slam origin */
+      Eigen::Affine3d T_pc;
+      T_pc.translation() = Eigen::Vector3d(pose.x, pose.y, pose.z);
+      T_pc.linear() = utils::T_camera_base.block<3, 3>(0, 0);
+
+      // filter point cloud
+      nav::preProcessPointCloud(nav_ctx, cloud, T_pc.matrix());
+
+      // process grid map layer
+      nav::processGridMapCells(nav_ctx, cloud);
+
+      // draw gridmap 
+      nav::draw_gridmap(nav_ctx, rec);
+    }
+  });
+
+  // executes thread and task graph
+  try {
+    executor.run(taskflow).wait();
+    capture_frame.join();
+    slam.join();
+    mapping.join();
+  } catch (const std::exception &e) {
+    spdlog::info(std::format("Exception: {}", e.what()));
+  }
 
   // killing objects
   delete slam_handler;
