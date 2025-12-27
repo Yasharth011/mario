@@ -58,8 +58,8 @@
             name = "rerun_cpp";
             src = fetchzip {
               url =
-                "https://github.com/rerun-io/rerun/releases/download/0.24.1/rerun_cpp_sdk.zip";
-              hash = "sha256-FzoLGeZMp5N5VRNT+QO8u7XobhxrqM1TyNVfAXsIHTY=";
+                "https://github.com/rerun-io/rerun/releases/download/0.28.1/rerun_cpp_sdk.zip";
+              hash = "sha256-hTewsXKIsHte7ER/vf1s0QVK62rDNufm16jZTE0DdP8=";
             };
             nativeBuildInputs = [ cmake pkg-config ];
             propagatedBuildInputs = [ arrow-cpp ];
