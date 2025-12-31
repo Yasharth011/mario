@@ -8,6 +8,12 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_cloud.h>
+#include <rerun.hpp>
+#include <rerun/archetypes/points3d.hpp>
+#include <rerun/components/color.hpp>
+#include <rerun/components/position3d.hpp>
+#include <rerun/components/radius.hpp>
+#include <rerun/recording_stream.hpp>
 #include <spdlog/spdlog.h>
 #include <yaml-cpp/yaml.h>
 
@@ -23,13 +29,15 @@ struct navContext *setupNav(std::string config_file) {
 
   nav->layer = "elevation";
 
-  nav->map = new grid_map::GridMap({nav->layer});
+  nav->map = new grid_map::GridMap();
 
   nav->map->setFrameId("cost_map");
 
   nav->map->setGeometry(grid_map::Length(nav->params.grid_map_dim[0],
                                          nav->params.grid_map_dim[1]),
                         nav->params.grid_map_res);
+
+  nav->map->add(nav->layer, 0.0);
 
   nav->space = std::make_shared<ob::RealVectorStateSpace>(2);
 
@@ -62,8 +70,8 @@ parameters loadParameters(const std::string &filename) {
     params.grid_map_dim[1] = gm["y"].as<float>();
     params.grid_map_res = gm["resolution"].as<float>();
     params.min_grid_points = gm["min_grid_points"].as<int>();
-    params.occupancy_threshold[0] = gm["pos_obstacle_threshold"].as<int>();
-    params.occupancy_threshold[1] = gm["neg_obstacle_threshold"].as<int>();
+    params.occupancy_threshold[0] = gm["pos_obstacle_threshold"].as<float>();
+    params.occupancy_threshold[1] = gm["neg_obstacle_threshold"].as<float>();
   }
 
   // Parse Filters
@@ -149,17 +157,12 @@ void processGridMapCells(navContext *ctx,
     return;
   }
 
-  grid_map::Matrix &elevation_data = ctx->map->get(ctx->layer);
-
   for (const auto &point : pointCloud->points) {
-
     grid_map::Position position(point.x, point.y);
-
     grid_map::Index index;
     if (ctx->map->getIndex(position, index)) {
-      float &cell_height = elevation_data(index(0), index(1));
-
-      if (std::isnan(cell_height) || point.z > cell_height) {
+      float &cell_height = ctx->map->at(ctx->layer, index);
+      if (point.z < cell_height || point.z > cell_height) {
         cell_height = point.z;
       }
     }
@@ -170,8 +173,8 @@ void processGridMapCells(navContext *ctx,
        ++iterator) {
     const grid_map::Index current_index = *iterator;
     float &elevation = ctx->map->at(ctx->layer, current_index);
-    if (elevation < ctx->params.occupancy_threshold[0] ||
-        elevation > ctx->params.occupancy_threshold[1])
+    if (elevation > ctx->params.occupancy_threshold[0] ||
+        elevation < ctx->params.occupancy_threshold[1])
       ctx->occupancy_list.push_back(current_index);
   }
   spdlog::info(std::format("Finished evaluating layer : {}", ctx->layer));
@@ -205,5 +208,39 @@ double ValidityChecker::clearance(const ob::State *state) const {
   }
   // get elevation value for position
   return min_dist;
+}
+
+void draw_gridmap(navContext *ctx, const rerun::RecordingStream &rec) {
+
+  std::vector<rerun::Position3D> free_position;
+
+  std::vector<rerun::Position3D> occupied_position;
+
+  for (grid_map::GridMapIterator iterator(*ctx->map); !iterator.isPastEnd();
+       ++iterator) {
+
+    const grid_map::Index current_index = *iterator;
+
+    float elevation = ctx->map->at(ctx->layer, current_index);
+
+    rerun::components::Radius radii(0.5);
+
+    if (elevation < ctx->params.occupancy_threshold[0] &&
+        elevation > ctx->params.occupancy_threshold[1]) {
+      free_position.push_back(
+          rerun::Position3D(current_index(0), current_index(1), 0));
+      rerun::components::Color color(0, 255, 0); // red - obstacle
+      rec.log(
+          "GridMap",
+          rerun::Points3D(free_position).with_radii(radii).with_colors(color));
+    } else {
+      occupied_position.push_back(
+          rerun::Position3D(current_index(0), current_index(1), 0));
+      rerun::components::Color color(255, 0, 0); // green - free
+      rec.log("GridMap", rerun::Points3D(occupied_position)
+                             .with_radii(radii)
+                             .with_colors(color));
+    }
+  }
 }
 } // namespace nav
