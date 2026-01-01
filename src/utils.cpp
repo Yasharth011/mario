@@ -14,7 +14,7 @@
 #include "utils.hpp"
 
 namespace utils {
-struct rs_handler *setupRealsense(struct rs_config config) {
+struct rs_handler *setupRealsense(struct rs_config &config) {
 
   struct rs_handler *handle = new utils::rs_handler();
 
@@ -40,6 +40,16 @@ struct rs_handler *setupRealsense(struct rs_config config) {
   }
 
   handle->selection = handle->pipe.start(stream_config, handle->frame_q);
+  auto color_stream = handle->selection.get_stream(RS2_STREAM_COLOR)
+                          .as<rs2::video_stream_profile>();
+  auto depth_stream = handle->selection.get_stream(RS2_STREAM_DEPTH)
+                          .as<rs2::video_stream_profile>();
+
+  // get intrinsics & extrinsics params
+  config.color_i = color_stream.get_intrinsics();
+  config.depth_i = depth_stream.get_intrinsics();
+  config.color_e = color_stream.get_extrinsics_to(depth_stream);
+  config.depth_e = depth_stream.get_extrinsics_to(color_stream);
 
   int index = 0;
   for (rs2::sensor sensor : handle->selection.get_device().query_sensors()) {

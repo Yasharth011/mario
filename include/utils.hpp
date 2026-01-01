@@ -3,6 +3,7 @@
 
 #include <Eigen/Dense>
 #include <condition_variable>
+#include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/hpp/rs_pipeline.hpp>
@@ -30,6 +31,10 @@ struct rs_config {
   uint16_t height, width;
   uint8_t fps;
   bool enable_imu = false;
+  rs2_intrinsics color_i; 
+  rs2_extrinsics color_e; 
+  rs2_intrinsics depth_i; 
+  rs2_extrinsics depth_e; 
 };
 
 enum Error : uint8_t {
@@ -43,7 +48,7 @@ enum Error : uint8_t {
 const Eigen::Matrix<double, 4, 4> T_camera_base{
     {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
 
-struct rs_handler *setupRealsense(struct rs_config config);
+struct rs_handler *setupRealsense(struct rs_config &config);
 
 Error destroyHandle(struct utils::rs_handler *handle);
 
