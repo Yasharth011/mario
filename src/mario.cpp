@@ -1,6 +1,7 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
+#include <cstdint>
 #include <format>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
@@ -70,8 +71,6 @@ int main(int argc, char *argv[]) {
   /* realsense vars */
   struct utils::rs_config realsense_config{.height = 640,
                                            .width = 480,
-                                           .fov = {0, 0},
-                                           .depth_scale = 0.0,
                                            .fps = 30,
                                            .enable_imu = false};
   struct utils::rs_handler *rs_ptr;
@@ -184,6 +183,7 @@ int main(int argc, char *argv[]) {
         size_t depthFrame_len = depthFrame.get_data_size();
 
         double timestamp = fs.get_timestamp();
+	int64_t frame_nr = fs.get_frame_number();
 
         // get raw point cloud data and convert to pcl cloud
         rs2::points points = rs_ptr->pc.calculate(depthFrame);
@@ -231,6 +231,9 @@ int main(int argc, char *argv[]) {
         });
         if (!ret)
           spdlog::error("Error Publishing: topic_pointcloud");
+
+	// log realsense pinhole view 
+	
       }
     }
   });
@@ -263,7 +266,7 @@ int main(int argc, char *argv[]) {
 
       struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 
-      res = slam::runLocalization(frame_cv, slam_handler, &rec);
+      res = slam::runLocalization(frame_cv, slam_handler);
 
       current_pose = utils::T_camera_base * res;
       auto translations = current_pose.col(3);
@@ -317,8 +320,6 @@ int main(int argc, char *argv[]) {
         cloud->points[i].x = points_buffer[i];
         cloud->points[i].y = points_buffer[i + 1];
         cloud->points[i].z = points_buffer[i + 2];
-        spdlog::debug(std::format("{} {} {}", cloud->points[i].x,
-                                  cloud->points[i].y, cloud->points[i].z));
       }
       struct slam::slamPose pose;
       if (!poseQueue.consume(pose)) {
@@ -340,7 +341,7 @@ int main(int argc, char *argv[]) {
       nav::processGridMapCells(nav_ctx, cloud);
 
       // draw gridmap 
-      nav::draw_gridmap(nav_ctx, rec);
+      nav::log_gridmap(nav_ctx, rec);
     }
   });
 

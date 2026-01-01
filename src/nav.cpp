@@ -210,7 +210,7 @@ double ValidityChecker::clearance(const ob::State *state) const {
   return min_dist;
 }
 
-void draw_gridmap(navContext *ctx, const rerun::RecordingStream &rec) {
+void log_gridmap(navContext *ctx, const rerun::RecordingStream &rec) {
 
   std::vector<rerun::Position3D> free_position;
 

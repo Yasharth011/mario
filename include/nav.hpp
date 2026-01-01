@@ -50,7 +50,7 @@ void preProcessPointCloud(navContext *ctx,
 void processGridMapCells(navContext *ctx,
                          pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud);
 
-void draw_gridmap(navContext *ctx, const rerun::RecordingStream &rec);
+void log_gridmap(navContext *ctx, const rerun::RecordingStream &rec);
 
 class ValidityChecker : public ob::StateValidityChecker {
 public:

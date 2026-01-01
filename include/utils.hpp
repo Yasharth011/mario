@@ -5,8 +5,11 @@
 #include <condition_variable>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>
+#include <librealsense2/hpp/rs_pipeline.hpp>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
+#include <rerun.hpp>
+#include <rerun/archetypes/text_log.hpp>
 #include <yasmin/logs.hpp>
 #include <zmq.hpp>
 
@@ -17,14 +20,14 @@ struct rs_handler {
   rs2::pointcloud pc;
   rs2::pipeline pipe;
   rs2::align align;
+  rs2::pipeline_profile selection;
 
-  rs_handler() : frame_q(), pc(), pipe(), align(RS2_STREAM_COLOR) {}
+  rs_handler()
+      : frame_q(), pc(), pipe(), selection(), align(RS2_STREAM_COLOR) {}
 };
 
 struct rs_config {
   uint16_t height, width;
-  uint16_t fov[2];
-  float depth_scale;
   uint8_t fps;
   bool enable_imu = false;
 };
@@ -36,7 +39,8 @@ enum Error : uint8_t {
   NoFrameset,
 };
 
-const Eigen::Matrix<double, 4, 4> T_camera_to_ned{
+// base is FLU (Front-Left-Up) frame
+const Eigen::Matrix<double, 4, 4> T_camera_base{
     {0, 0, 1, 0}, {-1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, 0, 1}};
 
 struct rs_handler *setupRealsense(struct rs_config config);

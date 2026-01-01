@@ -67,7 +67,7 @@ struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame) {
   return frame_cv;
 }
 
-auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
     -> Eigen::Matrix<double, 4, 4> {
 
   Eigen::Matrix<double, 4, 4> result;
@@ -101,12 +101,12 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)
 #include <iostream>
 #include <rerun.hpp>
 
+#include "utils.hpp"
+
 int main() {
   spdlog::set_level(spdlog::level::debug);
   struct utils::rs_config realsense_config{.height = 640,
                                            .width = 480,
-                                           .fov = {0, 0},
-                                           .depth_scale = 0.0,
                                            .fps = 30,
                                            .enable_imu = false};
 
@@ -131,7 +131,7 @@ int main() {
       struct slam::rawColorDepthPair *frame_raw;
       struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 
-      res = slam::runLocalization(frame_cv, slam_handler, &rec);
+      res = slam::runLocalization(frame_cv, slam_handler);
       current_pose = camera_to_ned_transform * res;
       auto translations = current_pose.col(3);
       auto rotations = current_pose.block<3, 3>(0, 0);

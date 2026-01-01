@@ -9,8 +9,6 @@
 #include <stella_vslam/config.h>
 #include <stella_vslam/system.h>
 
-#include "utils.hpp"
-
 namespace slam {
 
 // init this struct in main
@@ -54,7 +52,7 @@ void resetLocalization(slamHandle *handle);
 
 bool localizationLoopAdjustmentRunning(slamHandle *handle);
 
-auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle, const void *rec)
+auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
     -> Eigen::Matrix<double, 4, 4>;
 } // namespace slam
 #endif

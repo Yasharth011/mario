@@ -102,8 +102,6 @@ int main(int argc, char *argv[]) {
   // rs vars
   struct utils::rs_config realsense_config{.height = 640,
                                            .width = 480,
-                                           .fov = {0, 0},
-                                           .depth_scale = 0.0,
                                            .fps = 30,
                                            .enable_imu = false};
   struct utils::rs_handler *rs_ptr;
@@ -149,7 +147,7 @@ int main(int argc, char *argv[]) {
 
       struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 
-      res = slam::runLocalization(frame_cv, slam_handler, NULL);
+      res = slam::runLocalization(frame_cv, slam_handler);
 
       current_pose = utils::T_camera_base * res;
       auto translations = current_pose.col(3);
