@@ -70,8 +70,6 @@ struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame) {
 auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
     -> Eigen::Matrix<double, 4, 4> {
 
-  Eigen::Matrix<double, 4, 4> result;
-
   while (handle->slam.loop_BA_is_running() or
          (!handle->slam.mapping_module_is_enabled())) {
     std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -81,17 +79,7 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
                                frame_cv->timestamp_cv);
   auto pose = handle->slam.get_map_publisher()->get_current_cam_pose();
 
-  Eigen::Matrix<double, 4, 4> inverse_pose = pose.inverse();
-
-  auto frame = handle->slam.get_frame_publisher()->draw_frame();
-
-  std::string state = handle->slam.get_frame_publisher()->get_tracking_state();
-
-  if (state == "Tracking") {
-    auto translations = inverse_pose.col(3);
-    auto rotations = inverse_pose.block<3, 3>(0, 0);
-  }
-  result = inverse_pose;
+  Eigen::Matrix<double, 4, 4> result = pose.inverse();
 
   return result;
 }
