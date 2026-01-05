@@ -100,10 +100,8 @@ int main(int argc, char *argv[]) {
   struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
 
   // rs vars
-  struct utils::rs_config realsense_config{.height = 640,
-                                           .width = 480,
-                                           .fps = 30,
-                                           .enable_imu = false};
+  struct utils::rs_config realsense_config{
+      .height = 640, .width = 480, .fps = 30, .enable_imu = false};
   struct utils::rs_handler *rs_ptr;
   rs2::frame frame;
   rs_ptr = utils::setupRealsense(realsense_config);
@@ -145,7 +143,13 @@ int main(int argc, char *argv[]) {
       frame_raw->depthFrame = depthFrame.get_data();
       frame_raw->timestamp = fs.get_timestamp();
 
-      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
+      cv::Size colorFrameSize(realsense_config.color_i.height,
+                              realsense_config.color_i.width);
+      cv::Size depthFrameSize(realsense_config.depth_i.height,
+                              realsense_config.depth_i.width);
+
+      struct slam::RGBDFrame *frame_cv =
+          slam::getColorDepthPair(frame_raw, colorFrameSize, depthFrameSize);
 
       res = slam::runLocalization(frame_cv, slam_handler);
 

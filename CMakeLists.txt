@@ -32,7 +32,7 @@ pkg_check_modules(Cobs cobs)
 # utils
 add_library(utils src/utils.cpp)
 target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${spdlog_DIR})
-target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen spdlog::spdlog)
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen spdlog::spdlog slam)
 
 # tarzan
 add_library(serial src/serial.cpp)

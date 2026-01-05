@@ -14,6 +14,8 @@
 #include <yasmin/logs.hpp>
 #include <zmq.hpp>
 
+#include "slam.hpp"
+
 namespace utils {
 
 struct rs_handler {
@@ -56,6 +58,10 @@ const char *get_error(enum Error err);
 
 int publish_msg(zmq::socket_t &pub, const std::string &topic_name,
                 std::function<zmq::message_t()> get_encoded_msg);
+
+// void log_realsense(rerun::RecordingStream &rec,
+//                    struct rs_config &realsense_config,
+//                    struct slam::RGBDFrame *frameRaw, int64_t frame_nr);
 
 template <class T> class SafeQueue {
 

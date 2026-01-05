@@ -46,7 +46,7 @@ float yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
 
 std::string getStatus(slamHandle *handle);
 
-struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame);
+struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame, cv::Size &colorFrameSize, cv::Size &depthFrameSize);
 
 void resetLocalization(slamHandle *handle);
 

@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <cstdint>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
@@ -7,6 +8,9 @@
 #include <librealsense2/hpp/rs_processing.hpp>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
+#include <opencv2/core/hal/interface.h>
+#include <rerun.hpp>
+#include <rerun/collection.hpp>
 #include <spdlog/spdlog.h>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -76,9 +80,6 @@ Error destroyHandle(struct rs_handler *handle) {
     return Error::InvalidHandle;
 
   delete handle;
-  // handle->pipe.~pipeline();
-  // handle->frame_q.~frame_queue();
-  // handle->pc.~pointcloud();
 
   return Error::NoError;
 }
@@ -134,6 +135,55 @@ void yasmin_to_spdlog(yasmin::LogLevel level, const char *file,
   }
 }
 
+// void log_realsense(rerun::RecordingStream &rec,
+//                    struct rs_config &realsense_config,
+//                    struct slam::RGBDFrame *frameRaw, int64_t frame_nr) {
+//
+//   rec.log_static("realsense",
+//                  rerun::ViewCoordinates::RIGHT_HAND_Z_UP); // set z as up axis
+//
+//   // set color to depth transform in rerun
+//   rerun::components::Translation3D translation(
+//       realsense_config.color_e.translation[0],
+//       realsense_config.color_e.translation[1],
+//       realsense_config.color_e.translation[2]);
+//   rerun::components::TransformMat3x3 rotation(
+//       rerun::datatypes::Mat3x3(realsense_config.color_e.rotation));
+//   rec.log_static("realsense/rgb",
+//                  rerun::Transform3D(translation, rotation, true));
+//
+//   /* log color */
+//   // set color Pinhole view
+//   rec.log_static(
+//       "realsense/rgb/image",
+//       rerun::Pinhole().from_focal_length_and_resolution(
+//           rerun::datatypes::Vec2D(realsense_config.color_i.fx,
+//                                   realsense_config.color_i.fy),
+//           rerun::datatypes::Vec2D((float)realsense_config.color_i.width,
+//                                   (float)realsense_config.color_i.height)));
+//   // log color image
+//   rec.log("realsense/rgb/image",
+//           rerun::Image::from_rgb24(frameRaw->color_cv.data,
+//                                    {static_cast<uint32_t>(realsense_config.color_i.width),
+//                                     static_cast<uint32_t>(realsense_config.color_i.height)}));
+//
+//   /* log depth */
+//   // set depth Pinhole view
+//   rec.log_static(
+//       "realsense/depth/image",
+//       rerun::Pinhole().from_focal_length_and_resolution(
+//           rerun::datatypes::Vec2D(realsense_config.depth_i.fx,
+//                                   realsense_config.depth_i.fy),
+//           rerun::datatypes::Vec2D((float)realsense_config.depth_i.width,
+//                                   (float)realsense_config.depth_i.height)));
+//   // log depth image
+//   rec.log("realsense/depth/image", rerun::DepthImage(frameRaw->depth_cv.data,
+//                                    {static_cast<uint32_t>(realsense_config.depth_i.width),
+//                                     static_cast<uint32_t>(realsense_config.depth_i.height)}).with_meter(1000.0));
+//
+//   // log frame number
+//   rec.set_time_sequence("frame_nr", frame_nr);
+// }
 } // namespace utils
 
 #ifdef UTILS_TEST_CPP

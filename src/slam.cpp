@@ -42,21 +42,18 @@ bool localizationLoopAdjustmentRunning(slamHandle *handle) {
   return handle->slam.loop_BA_is_running();
 }
 
-struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame) {
+struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame,
+                                    cv::Size &colourFrameSize,
+                                    cv::Size &depthFrameSize) {
 
   struct RGBDFrame *frame_cv = new RGBDFrame();
 
-  // auto aligned_frames = handle->align.process(fs);
-
-  // rs2::video_frame color_frame = aligned_frames.first(RS2_STREAM_COLOR);
-  // rs2::video_frame depth_frame = aligned_frames.get_depth_frame();
-
-  auto color_cv = cv::Mat(cv::Size(640, 480), CV_8UC3,
-                          (void *)(frame->colorFrame), cv::Mat::AUTO_STEP);
+  auto color_cv = cv::Mat(colourFrameSize, CV_8UC3, (void *)(frame->colorFrame),
+                          cv::Mat::AUTO_STEP);
   cv::cvtColor(color_cv, color_cv, cv::COLOR_BGR2RGB);
 
-  auto depth_cv = cv::Mat(cv::Size(640, 480), CV_16U,
-                          (void *)(frame->depthFrame), cv::Mat::AUTO_STEP);
+  auto depth_cv = cv::Mat(depthFrameSize, CV_16U, (void *)(frame->depthFrame),
+                          cv::Mat::AUTO_STEP);
 
   auto timestamp_cv = frame->timestamp;
 
@@ -77,6 +74,7 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
 
   handle->slam.feed_RGBD_frame(frame_cv->color_cv, frame_cv->depth_cv,
                                frame_cv->timestamp_cv);
+
   auto pose = handle->slam.get_map_publisher()->get_current_cam_pose();
 
   Eigen::Matrix<double, 4, 4> result = pose.inverse();
@@ -93,10 +91,8 @@ auto runLocalization(RGBDFrame *frame_cv, slamHandle *handle)
 
 int main() {
   spdlog::set_level(spdlog::level::debug);
-  struct utils::rs_config realsense_config{.height = 640,
-                                           .width = 480,
-                                           .fps = 30,
-                                           .enable_imu = false};
+  struct utils::rs_config realsense_config{
+      .height = 640, .width = 480, .fps = 30, .enable_imu = false};
 
   const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
 
@@ -117,7 +113,13 @@ int main() {
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
 
       struct slam::rawColorDepthPair *frame_raw;
-      struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
+
+      cv::Size colorFrameSize(realsense_config.color_i.height,
+                              realsense_config.color_i.width);
+      cv::Size depthFrameSize(realsense_config.depth_i.height,
+                              realsense_config.depth_i.width);
+
+    struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw, colorFrameSize, depthFrameSize);
 
       res = slam::runLocalization(frame_cv, slam_handler);
       current_pose = camera_to_ned_transform * res;
