@@ -2,6 +2,10 @@
 #include <grid_map_core/TypeDefs.hpp>
 #include <grid_map_core/iterators/GridMapIterator.hpp>
 #include <memory>
+#include <ompl/base/Path.h>
+#include <ompl/base/PlannerStatus.h>
+#include <ompl/base/ProblemDefinition.h>
+#include <ompl/base/ScopedState.h>
 #include <ompl/base/spaces/RealVectorBounds.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <pcl/common/transforms.h>
@@ -51,10 +55,16 @@ struct navContext *setupNav(std::string config_file) {
   // set bounds to state
   nav->space->as<ob::RealVectorStateSpace>()->setBounds(bounds);
 
-  // allocate SpaceInformation obj
+  // creating SpaceInformation & set State Validity Checker
   nav->si = std::make_shared<ob::SpaceInformation>(nav->space);
   nav->si->setStateValidityChecker(
       std::make_shared<ValidityChecker>(nav->si, nav));
+
+  // creating Problem Definition
+  nav->pdef = std::make_shared<ob::ProblemDefinition>(nav->si);
+
+  // creating RRT-Connect Planner
+  nav->planner = std::make_shared<og::RRTConnect>(nav->si);
 
   return nav;
 }
@@ -100,6 +110,12 @@ parameters loadParameters(const std::string &filename) {
       params.voxel_leaf_size[1] = vs["y"].as<float>();
       params.voxel_leaf_size[2] = vs["z"].as<float>();
     }
+  }
+
+  // Planner
+  if (config["planner"]) {
+    const YAML::Node &planner = config["planner"];
+    params.tts = planner["time_to_solve"].as<float>();
   }
 
   return params;
@@ -242,5 +258,23 @@ void log_gridmap(navContext *ctx, const rerun::RecordingStream &rec) {
                              .with_colors(color));
     }
   }
+}
+
+ob::PathPtr get_path(nav::navContext *ctx, ob::ScopedState<> start,
+                     ob::ScopedState<> goal) {
+
+  // set start and goal states in problem definition
+  ctx->pdef->setStartAndGoalStates(start, goal);
+
+  ctx->planner->setProblemDefinition(ctx->pdef);
+
+  ctx->planner->setup();
+
+  ob::PlannerStatus status = ctx->planner->ob::Planner::solve(ctx->params.tts);
+
+  if (status)
+    return ctx->pdef->getSolutionPath();
+  else
+    return nullptr;
 }
 } // namespace nav
