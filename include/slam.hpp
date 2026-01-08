@@ -1,6 +1,7 @@
 #ifndef SLAM_HPP
 #define SLAM_HPP
 
+#include "utils.hpp"
 #include <Eigen/Dense>
 #include <librealsense2/rs.hpp>
 #include <opencv2/highgui.hpp>
@@ -46,7 +47,7 @@ float yawfromPose(Eigen::Matrix<double, 4, 4> &pose);
 
 std::string getStatus(slamHandle *handle);
 
-struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame, cv::Size &colorFrameSize, cv::Size &depthFrameSize);
+struct RGBDFrame *getColorDepthPair(struct rawColorDepthPair *frame);
 
 void resetLocalization(slamHandle *handle);
 
