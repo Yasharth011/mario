@@ -17,6 +17,7 @@ std::condition_variable writeCV;
 std::condition_variable readCV;
 int write_err;
 int read_err;
+std::unique_ptr<std::thread> asyncReadThread;
 
 void asyncWriteHandler(const boost::system::error_code &error,
                        std::size_t bytes_transferred) {
@@ -116,6 +117,13 @@ serial_port *open(io_context &io, const std::string port,
   try {
     serial->open(port);
     serial->set_option(serial_port_base::baud_rate(baudrate));
+    // thead to run io context in background
+    std::thread io_thread([&io] {
+      boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+          work(io.get_executor());
+      io.run();
+    });
+    io_thread.detach();
     return serial;
   } catch (...) {
     return nullptr;
@@ -202,10 +210,11 @@ int main(int argc, char *argv[]) {
   float angular_z = std::stof(argv[3]);
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
-  std::string err =
-      serial::get_error(serial::write_msg<struct tarzan::tarzan_msg>(
-          nucleo, msg, tarzan::TARZAN_MSG_LEN));
-
-  std::cout << "Message : " << err << std::endl;
+  while (true) {
+    serial::Error err = serial::write_msg<struct tarzan::tarzan_msg>(
+        nucleo, msg, tarzan::TARZAN_MSG_LEN);
+    std::string message = serial::get_error(err);
+    std::cout << "info : " << message << std::endl;
+  }
 }
 #endif
