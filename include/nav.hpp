@@ -59,8 +59,7 @@ void processGridMapCells(navContext *ctx,
 
 void log_gridmap(navContext *ctx, const rerun::RecordingStream &rec);
 
-ob::PathPtr get_path(nav::navContext *ctx, ob::ScopedState<> start,
-                     ob::ScopedState<> goal);
+ob::PathPtr get_path(nav::navContext *ctx, ob::ScopedState<>& start, ob::ScopedState<>& goal);
 
 class ValidityChecker : public ob::StateValidityChecker {
 public:
