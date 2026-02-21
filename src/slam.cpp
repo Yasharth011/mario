@@ -29,6 +29,13 @@ float yawfromPose(Eigen::Matrix<double, 4, 4> &pose) {
   yaws[0] = atan2(pose(1, 0) / cos(pitch_1), pose(0, 0) / cos(pitch_1));
   yaws[1] = atan2(pose(1, 0) / cos(pitch_2), pose(0, 0) / cos(pitch_2));
 
+  double yaw = yaws[1] - M_PI_2;
+
+  // Normalize to range (-PI, PI]
+  while (yaw > M_PI)
+    yaw -= 2 * M_PI;
+  while (yaw <= -M_PI)
+    yaw += 2 * M_PI;
   return yaws[1] - M_PI_2;
 }
 
