@@ -47,7 +47,7 @@ void asyncReadHandler(const boost::system::error_code &error,
 Error asyncRead(serial_port *serial, uint8_t *read_buffer, size_t MSG_LEN);
 
 template <typename msg_type>
-Error read_msg(serial_port *serial, msg_type &buffer, size_t MSG_LEN) {
+Error read_msg(serial_port *serial, msg_type *buffer, size_t MSG_LEN) {
 
   uint8_t read_buffer[MSG_LEN];
   Error err = asyncRead(serial, read_buffer, MSG_LEN);
@@ -101,7 +101,8 @@ struct tarzan_msg {
 };
 
 constexpr size_t TARZAN_MSG_LEN = sizeof(tarzan_msg) + 2; // tarzan message len
-constexpr size_t GEODETIC_MSG_LEN = sizeof(geodetic_msg) + 2; // geodetic message len  
+constexpr size_t GEODETIC_MSG_LEN =
+    sizeof(geodetic_msg) + 2; // geodetic message len
 
 // construct tarzan message
 struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z);
