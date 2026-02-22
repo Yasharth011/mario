@@ -31,12 +31,7 @@ float yawfromPose(Eigen::Matrix<double, 4, 4> &pose) {
 
   double yaw = yaws[1] - M_PI_2;
 
-  // Normalize to range (-PI, PI]
-  while (yaw > M_PI)
-    yaw -= 2 * M_PI;
-  while (yaw <= -M_PI)
-    yaw += 2 * M_PI;
-  return yaws[1] - M_PI_2;
+  return utils::normalize_angle(yaw);
 }
 
 std::string getStatus(slamHandle *handle) {

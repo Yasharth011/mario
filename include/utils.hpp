@@ -138,5 +138,7 @@ public:
 
 void yasmin_to_spdlog(yasmin::LogLevel level, const char *file,
                       const char *function, int line, const char *text);
+
+double normalize_angle(double angle);
 } // namespace utils
 #endif
