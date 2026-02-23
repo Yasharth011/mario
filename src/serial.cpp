@@ -188,10 +188,9 @@ struct tarzan_msg get_tarzan_msg(float linear_x, float angular_z) {
   // DiffDrive var
   struct DiffDriveTwist cmd = {.linear_x = linear_x, .angular_z = angular_z};
 
-  uint32_t crc = serial::crc32_ieee(
+  msg.cmd = cmd;
+  msg.crc = serial::crc32_ieee(
       (uint8_t *)&msg, sizeof(struct tarzan::tarzan_msg) - sizeof(msg.crc));
-
-  msg = {.cmd = cmd, .crc = crc};
 
   // tarzan msg
   return msg;
