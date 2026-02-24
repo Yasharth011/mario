@@ -112,8 +112,14 @@ int main() {
 
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
 
-      struct slam::rawColorDepthPair *frame_raw;
+      auto aligned_frames = rs_ptr->align.process(fs);
+      rs2::video_frame colorFrame = aligned_frames.first(RS2_STREAM_COLOR);
+      rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
 
+      struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair;
+      frame_raw->colorFrame = colorFrame.get_data();
+      frame_raw->depthFrame = depthFrame.get_data();
+      frame_raw->timestamp = fs.get_timestamp(); 
       struct slam::RGBDFrame *frame_cv = slam::getColorDepthPair(frame_raw);
 
       res = slam::runLocalization(frame_cv, slam_handler);
