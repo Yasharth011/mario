@@ -52,9 +52,9 @@ Error read_msg(serial_port *serial, msg_type *buffer, size_t MSG_LEN) {
   uint8_t read_buffer[MSG_LEN];
   Error err = asyncRead(serial, read_buffer, MSG_LEN);
 
-  if (auto result = cobs_decode(reinterpret_cast<void *>(buffer), MSG_LEN,
+  if (auto result = cobs_decode(reinterpret_cast<void *>(buffer), MSG_LEN-2,
                                 reinterpret_cast<const void *>(read_buffer),
-                                sizeof(read_buffer));
+                                MSG_LEN-1);
       result.status != COBS_DECODE_OK) {
     return Error::CobsDecodeError;
   }
