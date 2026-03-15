@@ -245,14 +245,14 @@ void log_gridmap(navContext *ctx, const rerun::RecordingStream &rec) {
         elevation > ctx->params.occupancy_threshold[1]) {
       free_position.push_back(
           rerun::Position3D(current_index(0), current_index(1), 0));
-      rerun::components::Color color(0, 255, 0); // red - obstacle
+      rerun::components::Color color(0, 255, 0); // green - free
       rec.log(
           "GridMap",
           rerun::Points3D(free_position).with_radii(radii).with_colors(color));
     } else {
       occupied_position.push_back(
           rerun::Position3D(current_index(0), current_index(1), 0));
-      rerun::components::Color color(255, 0, 0); // green - free
+      rerun::components::Color color(255, 0, 0); // red - obstacle
       rec.log("GridMap", rerun::Points3D(occupied_position)
                              .with_radii(radii)
                              .with_colors(color));

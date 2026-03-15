@@ -1,13 +1,16 @@
 cmake_minimum_required(VERSION 3.31.6)
 
-project(Mario VERSION 0.1 LANGUAGES CXX)
+project(
+  Mario
+  VERSION 0.1
+  LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE Debug)
 
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
-  set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES 
+  set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES
       ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
 endif()
 
@@ -15,7 +18,10 @@ find_package(yasmin REQUIRED)
 find_package(realsense2 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(onnxruntime REQUIRED)
-find_package(Boost 1.87.0 COMPONENTS program_options REQUIRED)
+find_package(
+  Boost 1.87.0
+  COMPONENTS program_options
+  REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(rerun_sdk REQUIRED)
@@ -31,33 +37,31 @@ pkg_check_modules(Cobs cobs)
 
 # utils
 add_library(utils src/utils.cpp)
-target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${spdlog_DIR})
-target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq Eigen3::Eigen spdlog::spdlog slam)
+target_include_directories(utils PUBLIC include ${realsense2_INCLUDE_DIRS}
+                                        ${OpenCV_INCLUDE_DIRS} ${spdlog_DIR})
+target_link_libraries(utils PUBLIC realsense2 ${OpenCV_LIBS} cppzmq
+                                   Eigen3::Eigen spdlog::spdlog slam)
 
 # tarzan
 add_library(serial src/serial.cpp)
-target_include_directories(serial PUBLIC include ${Cobs_INCLUDE_DIRS} ${Asio_INCLUDE_DIRS})
+target_include_directories(serial PUBLIC include ${Cobs_INCLUDE_DIRS}
+                                         ${Asio_INCLUDE_DIRS})
 target_link_libraries(serial PUBLIC ${Cobs_LDFLAGS})
 
 # slam
 add_library(slam src/slam.cpp)
 target_include_directories(
-  slam
-  PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS} ${Pangolin_INCLUDE_DIRS})
-target_link_libraries(slam
-  PUBLIC
-  utils
-  rerun_sdk
-  Eigen3::Eigen
-  stella_vslam::stella_vslam
-  ${GLEW_LIBS}
-  ${Pangolin_LIBS})
+  slam PUBLIC include ${rerun_sdk_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS}
+              ${Pangolin_INCLUDE_DIRS})
+target_link_libraries(
+  slam PUBLIC utils rerun_sdk Eigen3::Eigen stella_vslam::stella_vslam
+              ${GLEW_LIBS} ${Pangolin_LIBS})
 
 # nav
 add_library(nav src/nav.cpp)
-target_include_directories(
-	nav PUBLIC include ${PCL_INCLUDE_DIRS})
-target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_core yaml-cpp ompl::ompl)
+target_include_directories(nav PUBLIC include ${PCL_INCLUDE_DIRS})
+target_link_libraries(nav PUBLIC ${PCL_LIBRARIES} Eigen3::Eigen grid_map_core
+                                 yaml-cpp ompl::ompl)
 
 # pid
 add_library(pid src/pid.cpp)
@@ -65,32 +69,46 @@ target_include_directories(pid PUBLIC include)
 
 option(BUILD_TESTS "Build Test Scipts" ON)
 if(BUILD_TESTS)
-	# tarzan test 
-	add_executable(serial_test src/serial.cpp)
-	target_compile_definitions(serial_test PRIVATE SERIAL_TEST_CPP=1)
-	target_link_libraries(serial_test PRIVATE serial)
-	
-	# slam test 
-	add_executable(slam_test src/slam.cpp)
-	target_compile_definitions(slam_test PRIVATE SLAM_TEST_CPP=1)
-	target_include_directories(slam_test PRIVATE slam)
-	target_link_libraries(slam_test PRIVATE slam)
+  # tarzan test
+  add_executable(serial_test src/serial.cpp)
+  target_compile_definitions(serial_test PRIVATE SERIAL_TEST_CPP=1)
+  target_link_libraries(serial_test PRIVATE serial)
 
-	# utils test 
-	add_executable(utils_test src/utils.cpp)
-	target_compile_definitions(utils_test PRIVATE UTILS_TEST_CPP=1)
-	target_include_directories(utils_test PRIVATE utils)
-	target_link_libraries(utils_test PRIVATE utils)
+  # slam test
+  add_executable(slam_test src/slam.cpp)
+  target_compile_definitions(slam_test PRIVATE SLAM_TEST_CPP=1)
+  target_include_directories(slam_test PRIVATE slam)
+  target_link_libraries(slam_test PRIVATE slam)
 
-	# pid test
-	add_executable(pid_test src/pid.cpp)
-	target_compile_definitions(pid_test PRIVATE PID_TEST_CPP=1)
-	target_include_directories(pid_test PRIVATE pid slam serial)
-	target_link_libraries(pid_test PRIVATE pid slam serial)
+  # utils test
+  add_executable(utils_test src/utils.cpp)
+  target_compile_definitions(utils_test PRIVATE UTILS_TEST_CPP=1)
+  target_include_directories(utils_test PRIVATE utils)
+  target_link_libraries(utils_test PRIVATE utils)
+
+  # pid test
+  add_executable(pid_test src/pid.cpp)
+  target_compile_definitions(pid_test PRIVATE PID_TEST_CPP=1)
+  target_include_directories(pid_test PRIVATE pid slam serial)
+  target_link_libraries(pid_test PRIVATE pid slam serial)
+
+  # aurco test
+  add_executable(aruco_test src/aruco.cpp)
+  target_include_directories(aruco_test PUBLIC ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(aruco_test PUBLIC ${OpenCV_LIBS})
+
 endif()
 
 add_executable(mario ${CMAKE_SOURCE_DIR}/src/mario.cpp)
 
 target_include_directories(mario PRIVATE yasmin slam serial utils nav pid)
 
-target_link_libraries(mario PRIVATE yasmin Boost::program_options slam utils serial nav pid)
+target_link_libraries(
+  mario
+  PRIVATE yasmin
+          Boost::program_options
+          slam
+          utils
+          serial
+          nav
+          pid)
