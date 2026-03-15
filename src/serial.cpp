@@ -210,10 +210,20 @@ int main(int argc, char *argv[]) {
   tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
 
   while (true) {
+    // send data
     serial::Error err = serial::write_msg<struct tarzan::tarzan_msg>(
         nucleo, msg, tarzan::TARZAN_MSG_LEN);
     std::string message = serial::get_error(err);
     std::cout << "info : " << message << std::endl;
+
+    // read data
+    struct tarzan::geodetic_msg geo_msg;
+    err = serial::read_msg<struct tarzan::geodetic_msg>(
+        nucleo, &geo_msg, tarzan::GEODETIC_MSG_LEN);
+    if (err == serial::AsioReadError || err == serial::CobsDecodeError)
+      std::cout << serial::get_error(err);
+    std::cout << "lat : " << geo_msg.geo_data.lat
+              << " lon : " << geo_msg.geo_data.lon << std::endl;
   }
 }
 #endif
