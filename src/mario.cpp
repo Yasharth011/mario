@@ -3,7 +3,9 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <ctime>
 #include <format>
+#include <fstream>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
@@ -16,11 +18,13 @@
 #include <ompl/base/spaces/RealVectorBounds.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <ompl/geometric/PathGeometric.h>
+#include <opencv2/core/check.hpp>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/transforms.h>
 #include <pcl/impl/point_types.hpp>
 #include <pcl/pcl_macros.h>
 #include <rerun.hpp>
+#include <rerun/archetypes/image.hpp>
 #include <rerun/archetypes/text_log.hpp>
 #include <rerun/recording_stream.hpp>
 #include <spdlog/common.h>
@@ -61,7 +65,6 @@ void capture_frame(struct utils::rs_handler *rs_ptr, zmq::socket_t &pub) {
   rs2::frame frame;
 
   while (true) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     int ret; // error ret var
 
     // fetch frames from realsense
@@ -187,6 +190,11 @@ void localize(struct slam::slamHandle *slam_handler,
     rec.log("SlamPose", rerun::TextLog(coordinates));
 
     // log realsense pinhole view
+
+    // clear zmq message vectors
+    colorFrameMsg.clear();
+    depthFrameMsg.clear();
+    timestampMsg.clear();
   }
 }
 
@@ -262,10 +270,12 @@ void mapping(nav::navContext *nav_ctx,
 class StateMachine {
 private:
   std::tuple<float, float> get_local_goal(struct tarzan::geodetic &current_gps,
+                                          double target_latitude,
+                                          double target_longitude,
                                           slam::slamPose &pose) {
     // difference in target and current gps coordiantes
-    double dLat = DEG2RAD(target_gps.lat - current_gps.lat);
-    double dLon = DEG2RAD(target_gps.lon - current_gps.lon);
+    double dLat = DEG2RAD(target_latitude - current_gps.lat);
+    double dLon = DEG2RAD(target_longitude - current_gps.lon);
 
     // Equirectangular approximation for distances
     double x_east = dLon * std::cos(DEG2RAD(current_gps.lat)) * EARTH_RADIUS;
@@ -309,7 +319,7 @@ private:
                             .count();
     // traverse states
     int state_idx = 1;
-    double linear_x, angular_z;
+    double linear_x = drive_cmd.linear_x, angular_z = drive_cmd.angular_z;
     while (state_idx < states.size()) {
       // get current pose
       slam::slamPose pose;
@@ -347,7 +357,7 @@ private:
       else
         angular_z = std::clamp(
             control::computeCommand(pid_ctx, angular_error, now - previous),
-            -5.5, 5.5);
+            (angular_z * -1), angular_z);
       previous = now;
 
       // write drive cmd
@@ -366,18 +376,18 @@ public:
   struct control::Pid *pid_ctx;
   boost::asio::serial_port *serial;
   utils::SafeQueue<struct slam::slamPose> &poseQueue;
-  const struct tarzan::geodetic &target_gps;
-  const struct tarzan::DiffDriveTwist &max_drive_cmd;
+  const struct tarzan::DiffDriveTwist &drive_cmd;
 
   StateMachine(struct nav::navContext *nav, struct control::Pid *pid,
                boost::asio::serial_port *ser,
                utils::SafeQueue<struct slam::slamPose> &queue,
-               const struct tarzan::geodetic &target,
                const struct tarzan::DiffDriveTwist &cmd)
       : nav_ctx(nav), pid_ctx(pid), serial(ser), poseQueue(queue),
-        target_gps(target), max_drive_cmd(cmd) {};
+        drive_cmd(cmd) {};
 
-  int navGPS() {
+  int navGPS(std::queue<std::pair<double, double>> target_gnss) {
+    spdlog::info("State Machine : Executing navGPS");
+
     /* wait for map generation */
     std::unique_lock<std::mutex> lock(map_sync.mtx);
     map_sync.cv.wait(lock, [] { return map_sync.flag; });
@@ -390,16 +400,40 @@ public:
       return 0;
     }
 
-    // get local goal coordinates
+    // get current gps coordinates
     struct tarzan::geodetic_msg geo_msg;
     serial::Error err = serial::read_msg<struct tarzan::geodetic_msg>(
         serial, &geo_msg, tarzan::GEODETIC_MSG_LEN);
-
     if (err == serial::AsioReadError || err == serial::CobsDecodeError) {
-      spdlog::info(serial::get_error(err));
+      spdlog::error(serial::get_error(err));
       return 0;
     }
-    std::tuple goal_coords = get_local_goal(geo_msg.geo_data, pose);
+
+    /* check if current coordinates are near to target */
+    // difference in target and current gps coordiantes
+    double target_latitude = target_gnss.front().first;
+    double target_longitude = target_gnss.front().second;
+    double dLat = DEG2RAD(target_latitude - geo_msg.geo_data.lat);
+    double dLon = DEG2RAD(target_longitude - geo_msg.geo_data.lon);
+    target_gnss.pop();
+
+    // Equirectangular approximation for distances
+    double x_east =
+        dLon * std::cos(DEG2RAD(geo_msg.geo_data.lat)) * EARTH_RADIUS;
+    double y_north = dLat * EARTH_RADIUS;
+
+    // calcaulte total distance
+    double total_distance = std::sqrt((x_east * x_east) + (y_north * y_north));
+
+    if (total_distance < 2.0) {
+      spdlog::info("State Machine: Transitioning from navGPS ");
+      return 1;
+    }
+    /* --- */
+
+    // get local goal coordinates
+    std::tuple goal_coords = get_local_goal(geo_msg.geo_data, target_latitude,
+                                            target_longitude, pose);
 
     // set start and goal state
     ob::ScopedState<> start(nav_ctx->space);
@@ -414,6 +448,13 @@ public:
 
     // get path to local goal
     ob::PathPtr path = nav::get_path(nav_ctx, start, goal);
+
+    // traverse path to local goal
+    traverse_path(path);
+
+    spdlog::info("State Machine: Transitioning from navGPS ");
+
+    return 0;
   }
 };
 
@@ -432,7 +473,10 @@ int main(int argc, char *argv[]) {
       "gridmap_config", po::value<std::string>(),
       "gridmap parameters file")("p", po::value<double>(), "proportional gain")(
       "i", po::value<double>(), "integral gain")("d", po::value<double>(),
-                                                 "differential gain");
+                                                 "differential gain")(
+      "gnss", po::value<double>(), "file path of gnss targets")(
+      "linear", po::value<float>(), "max linear velocity")(
+      "angular", po::value<float>(), "max angular velcoity");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -477,12 +521,18 @@ int main(int argc, char *argv[]) {
   const std::string rerun_url =
       std::format("rerun+http://{}/proxy", vm["rerun_ip"].as<std::string>());
 
-  spdlog::info("Configuring Rover Peripherals...");
-
   /* pid vars */
   struct control::Pid *pid_ctx;
   pid_ctx = control::initPid(vm["p"].as<double>(), vm["i"].as<double>(),
                              vm["d"].as<double>());
+
+  /* state machine vars*/
+  StateMachine sm(
+      nav_ctx, pid_ctx, serial, poseQueue,
+      tarzan::DiffDriveTwist(vm["l"].as<float>(), vm["a"].as<float>()));
+
+  /* CONFIGURING PERIPHERALS */
+  spdlog::info("Configuring Rover Peripherals...");
 
   /* CONFIGURING REALSENSE */
   // init realsense handler
@@ -504,7 +554,7 @@ int main(int argc, char *argv[]) {
   // open serial com
   serial = serial::open(io, SERIAL_PORT, BAUDRATE);
   if (not serial) {
-    spdlog::error("Unable to setup Nucleo serial port");
+    spdlog::error("Unable to setup serial port");
     return -1;
   }
   spdlog::info(std::format("Succesfull connection to {}", SERIAL_PORT.c_str()));
@@ -549,7 +599,24 @@ int main(int argc, char *argv[]) {
                              std::ref(mapping_sub), std::ref(rec),
                              realsense_config);
 
-  /* CONFIGURING TASK-GRAPH */
+  /* CONFIGURING STATES */
+  // read gnss coordinates from file
+  std::ifstream gnss_file(vm["gnss"].as<std::string>());
+  try {
+    std::string gnss_str;
+    std::queue<std::pair<double, double>> target_gnss;
+    while (getline(gnss_file, gnss_str)) {
+      std::pair<double, double> gnss;
+      size_t pos = gnss_str.find(" ");
+      gnss.first = std::stgnss_str.substr(0, pos);
+      gnss.second
+    }
+    gnss_file.close();
+  }
+  sm.navGPS(std::queue<std::pair<double, double>> target_gnss)
+
+      /* CONFIGURING TASK-GRAPH */
+      navGPS.precede(navGPS);
 
   /* EXECUTING THREAD & TASK-GRAPH */
   try {
