@@ -1,24 +1,38 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <ctime>
 #include <format>
+#include <fstream>
 #include <iterator>
 #include <librealsense2/h/rs_sensor.h>
 #include <librealsense2/h/rs_types.h>
 #include <librealsense2/hpp/rs_frame.hpp>
 #include <librealsense2/rs.hpp>
+#include <memory>
+#include <mutex>
+#include <ompl/base/Path.h>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/spaces/RealVectorBounds.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/geometric/PathGeometric.h>
+#include <opencv2/core/check.hpp>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/transforms.h>
 #include <pcl/impl/point_types.hpp>
+#include <pcl/pcl_macros.h>
 #include <rerun.hpp>
+#include <rerun/archetypes/image.hpp>
 #include <rerun/archetypes/text_log.hpp>
 #include <rerun/recording_stream.hpp>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <sys/types.h>
-#include <taskflow/taskflow.hpp>
 #include <thread>
+#include <tuple>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
@@ -30,20 +44,30 @@
 
 namespace po = boost::program_options;
 
+#define EARTH_RADIUS 6378137.0 // earth radius in meters
+// FIX(PR1-bug0): removed trailing semicolon from macro — caused
+// "expression is not assignable" on every use of EARTH_RADIUS
+
 /* zmq topic names */
 const std::string topic_color = "color_frame";
 const std::string topic_depth = "depth_frame";
 const std::string topic_timestamp = "timestamp";
 const std::string topic_pointcloud = "pointcloud";
 
+struct mapReadySignal {
+  std::mutex mtx;
+  std::condition_variable cv;
+  bool flag = false;
+} map_sync;
+
 /* function to capture & publish realsense frames */
 void capture_frame(struct utils::rs_handler *rs_ptr, zmq::socket_t &pub) {
-  rs2::frame frame;
-  while (true) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    int ret; // error ret var
 
-    // fetch frames from realsense
+  rs2::frame frame;
+
+  while (true) {
+    int ret;
+
     frame = rs_ptr->frame_q.wait_for_frame();
 
     if (rs2::frameset fs = frame.as<rs2::frameset>()) {
@@ -52,19 +76,15 @@ void capture_frame(struct utils::rs_handler *rs_ptr, zmq::socket_t &pub) {
       rs2::video_frame colorFrame = aligned_frames.first(RS2_STREAM_COLOR);
       rs2::video_frame depthFrame = aligned_frames.get_depth_frame();
 
-      // get raw frame data
       const void *raw_colorFrame = colorFrame.get_data();
       const void *raw_depthFrame = depthFrame.get_data();
 
-      // get length of frames
       size_t colorFrame_len = colorFrame.get_data_size();
       size_t depthFrame_len = depthFrame.get_data_size();
 
       double timestamp = fs.get_timestamp();
 
-      // get raw point cloud data and convert to pcl cloud
       rs2::points points = rs_ptr->pc.calculate(depthFrame);
-      // set point cloud vertices
       const rs2::vertex *vertices = points.get_vertices();
       std::vector<float> vertices_vector;
       for (size_t i = 0; i < points.size(); i++) {
@@ -73,7 +93,6 @@ void capture_frame(struct utils::rs_handler *rs_ptr, zmq::socket_t &pub) {
         vertices_vector.push_back(vertices[i].z);
       }
 
-      // publishing messages
       ret = utils::publish_msg(
           pub, topic_color, [raw_colorFrame, colorFrame_len]() {
             zmq::message_t msg(colorFrame_len);
@@ -119,37 +138,31 @@ void localize(struct slam::slamHandle *slam_handler,
 
   Eigen::Matrix<double, 4, 4> current_pose;
   Eigen::Matrix<double, 4, 4> res;
+  std::vector<zmq::message_t> colorFrameMsg;
+  std::vector<zmq::message_t> depthFrameMsg;
+  std::vector<zmq::message_t> timestampMsg;
+  zmq::recv_result_t result_color;
+  zmq::recv_result_t result_depth;
+  zmq::recv_result_t result_timestamp;
+  struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair;
+  struct slam::RGBDFrame *frame_cv;
 
   while (true) {
-    std::vector<zmq::message_t> colorFrameMsg;
-    std::vector<zmq::message_t> depthFrameMsg;
-    std::vector<zmq::message_t> timestampMsg;
-
-    zmq::recv_result_t result_color =
-        zmq::recv_multipart(sub, std::back_inserter(colorFrameMsg));
-    zmq::recv_result_t result_depth =
-        zmq::recv_multipart(sub, std::back_inserter(depthFrameMsg));
-    zmq::recv_result_t result_timestamp =
+    result_color = zmq::recv_multipart(sub, std::back_inserter(colorFrameMsg));
+    result_depth = zmq::recv_multipart(sub, std::back_inserter(depthFrameMsg));
+    result_timestamp =
         zmq::recv_multipart(sub, std::back_inserter(timestampMsg));
 
-    // check if recvd message is corrupt
     if (!result_color.has_value() || !result_depth.has_value() ||
         !result_timestamp.has_value()) {
       continue;
     }
 
-    struct slam::rawColorDepthPair *frame_raw = new slam::rawColorDepthPair();
-
     frame_raw->colorFrame = colorFrameMsg[1].data();
     frame_raw->depthFrame = depthFrameMsg[1].data();
     frame_raw->timestamp = std::stod(timestampMsg[1].to_string());
 
-    cv::Size colorFrameSize(realsense_config.color_i.height,
-                            realsense_config.color_i.width);
-    cv::Size depthFrameSize(realsense_config.depth_i.height,
-                            realsense_config.depth_i.width);
-    struct slam::RGBDFrame *frame_cv =
-        slam::getColorDepthPair(frame_raw, colorFrameSize, depthFrameSize);
+    frame_cv = slam::getColorDepthPair(frame_raw);
 
     res = slam::runLocalization(frame_cv, slam_handler);
 
@@ -161,15 +174,15 @@ void localize(struct slam::slamHandle *slam_handler,
     float z = translations.z();
     float yaw = slam::yawfromPose(current_pose);
 
-    // insert slam pose to queue
     struct slam::slamPose pose = {.x = x, .y = y, .z = z, .yaw = yaw};
     poseQueue.produce(std::move(pose));
 
-    // log pose
     std::string coordinates = std::format("x: {} y: {} yaw: {}", x, y, yaw);
     rec.log("SlamPose", rerun::TextLog(coordinates));
 
-    // log realsense pinhole view
+    colorFrameMsg.clear();
+    depthFrameMsg.clear();
+    timestampMsg.clear();
   }
 }
 
@@ -180,77 +193,250 @@ void mapping(nav::navContext *nav_ctx,
              utils::rs_config realsense_config) {
 
   struct slam::slamPose pose;
+  std::vector<zmq::message_t> pointcloud_msg;
+  zmq::recv_result_t result_pointcloud;
+  std::vector<float> points_buffer;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(
+      new pcl::PointCloud<pcl::PointXYZ>());
+  Eigen::Affine3d T_pc;
 
-  while (true) {
-    std::vector<zmq::message_t> pointcloud_msg;
+  while (!map_sync.flag) {
 
-    zmq::recv_result_t result_pointcloud =
+    result_pointcloud =
         zmq::recv_multipart(sub, std::back_inserter(pointcloud_msg));
 
-    // check if recvd message is corrupt
     if (!result_pointcloud.has_value())
       continue;
 
-    std::vector<float> points_buffer;
     points_buffer.resize(pointcloud_msg[1].size() / sizeof(float));
     std::memcpy(points_buffer.data(), pointcloud_msg[1].data(),
                 pointcloud_msg[1].size());
-    int buffer_size = std::ceil(points_buffer.size() /
-                                3); //  ceil -> buffer_size is not bigger
-                                    // than cloud size (=buffer_size/3)
-    // create pcl cloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(
-        new pcl::PointCloud<pcl::PointXYZ>());
-    cloud->width = buffer_size; // header.width;
-    cloud->height = 1;          // header.height;
+
+    // buffer_size = number of XYZ points (each point = 3 floats)
+    int buffer_size = static_cast<int>(points_buffer.size() / 3);
+
+    cloud->width = buffer_size;
+    cloud->height = 1;
     cloud->is_dense = false;
     cloud->points.resize(buffer_size);
 
-    for (auto i = 0; i < buffer_size; i += 3) {
-      cloud->points[i].x = points_buffer[i];
-      cloud->points[i].y = points_buffer[i + 1];
-      cloud->points[i].z = points_buffer[i + 2];
+    // FIX(PR1-bug3): was `i += 3` which stepped cloud index by 3 and read
+    // only 1/3 of the points. Correct: one cloud point per iteration,
+    // address floats as i*3, i*3+1, i*3+2.
+    for (int i = 0; i < buffer_size; i++) {
+      cloud->points[i].x = points_buffer[i * 3];
+      cloud->points[i].y = points_buffer[i * 3 + 1];
+      cloud->points[i].z = points_buffer[i * 3 + 2];
     }
 
     if (!poseQueue.consume(pose)) {
-      spdlog::error("Unable to fetch data from Pose Queue");
+      spdlog::error("GridMap : Unable to fetch data from Pose Queue");
       continue;
     }
 
-    /* transformation for pointcloud :-
-    rotation to base link (FLU)
-    translation to slam origin */
-    Eigen::Affine3d T_pc;
     T_pc.translation() = Eigen::Vector3d(pose.x, pose.y, pose.z);
     T_pc.linear() = utils::T_camera_base.block<3, 3>(0, 0);
 
-    // filter point cloud
     nav::preProcessPointCloud(nav_ctx, cloud, T_pc.matrix());
-
-    // process grid map layer
     nav::processGridMapCells(nav_ctx, cloud);
-
-    // log gridmap
     nav::log_gridmap(nav_ctx, rec);
+
+    std::lock_guard<std::mutex> lock(map_sync.mtx);
+    map_sync.flag = true;
+    map_sync.cv.notify_all();
   }
 }
+
+/* state to navigate to gps coordinate */
+class StateMachine {
+private:
+  std::tuple<float, float> get_local_goal(struct tarzan::geodetic &current_gps,
+                                          double target_latitude,
+                                          double target_longitude,
+                                          slam::slamPose &pose) {
+    double dLat = DEG2RAD(target_latitude - current_gps.lat);
+    double dLon = DEG2RAD(target_longitude - current_gps.lon);
+
+    double x_east = dLon * std::cos(DEG2RAD(current_gps.lat)) * EARTH_RADIUS;
+    double y_north = dLat * EARTH_RADIUS;
+
+    double total_distance = std::sqrt((x_east * x_east) + (y_north * y_north));
+
+    double target_angle_global = std::atan2(y_north, x_east);
+    double rover_angle_global = DEG2RAD(90.0 - current_gps.head);
+    double relative_angle =
+        utils::normalize_angle(target_angle_global - rover_angle_global);
+
+    double local_goal_dist =
+        std::min(total_distance, (double)nav_ctx->params.grid_map_dim[1]);
+
+    double target_x = local_goal_dist * std::cos(relative_angle);
+    // FIX(PR1-bug4): was std::cos — y component must use sin
+    double target_y = local_goal_dist * std::sin(relative_angle);
+
+    float local_goal_x = pose.x + (target_x * std::cos(pose.yaw));
+    // FIX(PR1-bug4): was std::cos — rotating y component uses sin(yaw)
+    float local_goal_y = pose.y + (target_y * std::sin(pose.yaw));
+
+    return std::make_tuple(local_goal_x, local_goal_y);
+  }
+
+  void traverse_path(ob::PathPtr path) {
+    auto geo_path =
+        std::dynamic_pointer_cast<ompl::geometric::PathGeometric>(path);
+    if (!geo_path || geo_path->getStateCount() == 0) {
+      spdlog::warn("State Machine: Path is empty or invalid");
+      return;
+    }
+    const auto states = geo_path->getStates();
+
+    uint64_t previous = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    int state_idx = 1;
+    double linear_x = drive_cmd.linear_x, angular_z = drive_cmd.angular_z;
+
+    while (state_idx < (int)states.size()) {
+      slam::slamPose pose;
+      if (!poseQueue.consume(pose)) {
+        spdlog::error("State Machine : Unable to fetch data from Pose Queue");
+        continue;
+      }
+
+      auto state = states[state_idx]->as<ob::RealVectorStateSpace::StateType>();
+      double target_x = state->values[0];
+      double target_y = state->values[1];
+
+      double dx = target_x - pose.x;
+      double dy = target_y - pose.y;
+      double distance = std::sqrt(dx * dx + dy * dy);
+
+      if (distance < nav_ctx->params.grid_map_res) {
+        state_idx++;
+        continue;
+      }
+
+      double target_yaw = std::atan2(dy, dx);
+      double angular_error = utils::normalize_angle(target_yaw - pose.yaw);
+
+      uint64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+
+      if (std::abs(angular_error) < 0.01)
+        angular_z = 0.0;
+      else
+        angular_z = std::clamp(
+            control::computeCommand(pid_ctx, angular_error, now - previous),
+            (angular_z * -1), angular_z);
+      previous = now;
+
+      tarzan::tarzan_msg msg = tarzan::get_tarzan_msg(linear_x, angular_z);
+      serial::Error err = serial::write_msg<struct tarzan::tarzan_msg>(
+          serial, msg, tarzan::TARZAN_MSG_LEN);
+      // FIX(PR1-bug5): was `== WriteSuccess` logging error — inverted logic.
+      // Log error only on failure.
+      if (err != serial::Error::WriteSuccess)
+        spdlog::error(std::format("State Machine: serial write failed: {}",
+                                  serial::get_error(err)));
+      else
+        spdlog::debug("State Machine: drive cmd sent");
+    }
+  }
+
+public:
+  struct nav::navContext *nav_ctx;
+  struct control::Pid *pid_ctx;
+  boost::asio::serial_port *serial;
+  utils::SafeQueue<struct slam::slamPose> &poseQueue;
+  const struct tarzan::DiffDriveTwist &drive_cmd;
+
+  StateMachine(struct nav::navContext *nav, struct control::Pid *pid,
+               boost::asio::serial_port *ser,
+               utils::SafeQueue<struct slam::slamPose> &queue,
+               const struct tarzan::DiffDriveTwist &cmd)
+      : nav_ctx(nav), pid_ctx(pid), serial(ser), poseQueue(queue),
+        drive_cmd(cmd) {};
+
+  int navGPS(std::queue<std::pair<double, double>> target_gnss) {
+    spdlog::info("State Machine : Executing navGPS");
+
+    /* wait for map generation */
+    std::unique_lock<std::mutex> lock(map_sync.mtx);
+    map_sync.cv.wait(lock, [] { return map_sync.flag; });
+    lock.unlock();
+
+    // get current pose
+    slam::slamPose pose;
+    if (!poseQueue.consume(pose)) {
+      spdlog::error("State Machine : Unable to fetch data from Pose Queue");
+      return 0;
+    }
+
+    // get current gps coordinates
+    struct tarzan::geodetic_msg geo_msg;
+    serial::Error err = serial::read_msg<struct tarzan::geodetic_msg>(
+        serial, &geo_msg, tarzan::GEODETIC_MSG_LEN);
+    if (err == serial::AsioReadError || err == serial::CobsDecodeError) {
+      spdlog::error(serial::get_error(err));
+      return 0;
+    }
+
+    double target_latitude = target_gnss.front().first;
+    double target_longitude = target_gnss.front().second;
+    double dLat = DEG2RAD(target_latitude - geo_msg.geo_data.lat);
+    double dLon = DEG2RAD(target_longitude - geo_msg.geo_data.lon);
+    target_gnss.pop();
+
+    double x_east =
+        dLon * std::cos(DEG2RAD(geo_msg.geo_data.lat)) * EARTH_RADIUS;
+    double y_north = dLat * EARTH_RADIUS;
+
+    double total_distance = std::sqrt((x_east * x_east) + (y_north * y_north));
+
+    if (total_distance < 2.0) {
+      spdlog::info("State Machine: within 2m of target, done");
+      return 1;
+    }
+
+    std::tuple goal_coords = get_local_goal(geo_msg.geo_data, target_latitude,
+                                            target_longitude, pose);
+
+    ob::ScopedState<> start(nav_ctx->space);
+    start->as<ob::RealVectorStateSpace::StateType>()->values[0] = pose.x;
+    start->as<ob::RealVectorStateSpace::StateType>()->values[1] = pose.y;
+
+    ob::ScopedState<> goal(nav_ctx->space);
+    goal->as<ob::RealVectorStateSpace::StateType>()->values[0] =
+        get<0>(goal_coords);
+    goal->as<ob::RealVectorStateSpace::StateType>()->values[1] =
+        get<1>(goal_coords);
+
+    ob::PathPtr path = nav::get_path(nav_ctx, start, goal);
+
+    traverse_path(path);
+
+    spdlog::info("State Machine: navGPS complete");
+    return 0;
+  }
+};
 
 int main(int argc, char *argv[]) {
 
   spdlog::set_level(spdlog::level::info);
 
-  // Command Line Options
   po::options_description desc("Allowed Options");
-
   desc.add_options()("help", "produce help message")(
-      "serial", po::value<std::string>(), "serial port to nucleo")(
-      "br", po::value<int>(),
-      "baudrate for com with controller")("rerun_ip", po::value<std::string>(),
-                                          "ip address of remote rerun viewer")(
-      "gridmap_config", po::value<std::string>(),
-      "gridmap parameters file")("p", po::value<double>(), "proportional gain")(
-      "i", po::value<double>(), "integral gain")("d", po::value<double>(),
-                                                 "differential gain");
+      "serial", po::value<std::string>(), "serial port")(
+      "br", po::value<int>(), "baudrate")(
+      "rerun_ip", po::value<std::string>(), "rerun viewer ip")(
+      "gridmap_config", po::value<std::string>(), "gridmap parameters file")(
+      "p", po::value<double>(), "proportional gain")(
+      "i", po::value<double>(), "integral gain")(
+      "d", po::value<double>(), "differential gain")(
+      "gnss", po::value<std::string>(), "file path of gnss targets")(
+      "linear", po::value<float>(), "max linear velocity")(
+      "angular", po::value<float>(), "max angular velocity");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -260,10 +446,6 @@ int main(int argc, char *argv[]) {
     std::cout << desc << "\n";
     return 1;
   }
-
-  /* taskflow vars */
-  tf::Executor executor(2); // creating exectutor
-  tf::Taskflow taskflow;    // & taskflow graph obj
 
   /* zmq vars */
   zmq::context_t ctx(1);
@@ -284,61 +466,60 @@ int main(int argc, char *argv[]) {
   struct nav::navContext *nav_ctx =
       nav::setupNav(vm["gridmap_config"].as<std::string>());
 
-  /* serial com vars */
-  std::string SERIAL_PORT = vm["serial"].as<std::string>();
-  int BAUDRATE = vm["br"].as<int>();
-  boost::asio::io_context io;
-  boost::asio::serial_port *nucleo;
-
   /* rerun vars */
   const auto rec = rerun::RecordingStream("TEAM RUDRA AUTONOMOUS - mario");
   const std::string rerun_url =
       std::format("rerun+http://{}/proxy", vm["rerun_ip"].as<std::string>());
 
+  /* pid vars */
+  struct control::Pid *pid_ctx =
+      control::initPid(vm["p"].as<double>(), vm["i"].as<double>(),
+                       vm["d"].as<double>());
+
+  /* CONFIGURING PERIPHERALS */
   spdlog::info("Configuring Rover Peripherals...");
 
-  /* pid vars */
-  struct control::Pid *pid_ctx;
-  pid_ctx = control::initPid(vm["p"].as<double>(), vm["i"].as<double>(),
-                             vm["d"].as<double>());
-
   /* CONFIGURING REALSENSE */
-  // init realsense handler
   rs_ptr = utils::setupRealsense(realsense_config);
   if (not rs_ptr) {
     spdlog::error("Unable to setup Realsense");
     return -1;
   }
-  spdlog::info("Successfull setup of Realsense");
-  // Camera warmup - dropping several first frames to let auto-exposure
-  // stabilize
+  spdlog::info("Successful setup of Realsense");
   rs2::frame frame;
   for (int i = 0; i < 100; i++) {
-    // Wait for all configured streams to produce a frame
     frame = rs_ptr->frame_q.wait_for_frame();
   }
 
   /* CONFIGURING NUCLEO COM */
-  // open nucleo com
-  nucleo = serial::open(io, SERIAL_PORT, BAUDRATE);
-  if (not nucleo) {
-    spdlog::error("Unable to setup Nucleo serial port");
+  // FIX(PR1-bug1): serial must be opened BEFORE StateMachine is constructed.
+  // Original code constructed StateMachine with an uninitialized serial ptr,
+  // then opened serial 25 lines later — instant UB on any serial access.
+  std::string SERIAL_PORT = vm["serial"].as<std::string>();
+  int BAUDRATE = vm["br"].as<int>();
+  boost::asio::io_context io;
+  boost::asio::serial_port *serial = serial::open(io, SERIAL_PORT, BAUDRATE);
+  if (not serial) {
+    spdlog::error("Unable to setup serial port");
     return -1;
   }
-  spdlog::info(std::format("Succesfull connection to {}", SERIAL_PORT.c_str()));
+  spdlog::info(std::format("Successful connection to {}", SERIAL_PORT));
+
+  /* CONSTRUCTING STATE MACHINE — after serial is valid */
+  // FIX(PR1-bug2): was vm["l"] and vm["a"] — keys don't exist, throws
+  // invalid_option_value at runtime. Correct keys are "linear" / "angular".
+  StateMachine sm(
+      nav_ctx, pid_ctx, serial, poseQueue,
+      tarzan::DiffDriveTwist{vm["linear"].as<float>(), vm["angular"].as<float>()});
 
   /* CONFIGURING ZMQ SOCKETS */
-  // binding publisher
   try {
     pub.bind("inproc://realsense");
   } catch (zmq::error_t &e) {
     spdlog::error(e.what());
   }
-
-  // sleep for lazy subs
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-  // connecting subscriber
   try {
     slam_sub.connect("inproc://realsense");
     slam_sub.set(zmq::sockopt::subscribe, topic_color);
@@ -358,7 +539,7 @@ int main(int argc, char *argv[]) {
   /* CONFIGURING RERUN */
   rec.connect_grpc(rerun_url).exit_on_failure();
 
-  /* CONFIGURING THREADS */
+  /* LAUNCHING BACKGROUND THREADS */
   std::thread capture_thread(capture_frame, rs_ptr, std::ref(pub));
   std::thread localize_thread(localize, slam_handler, std::ref(poseQueue),
                               std::ref(slam_sub), std::ref(rec),
@@ -367,22 +548,52 @@ int main(int argc, char *argv[]) {
                              std::ref(mapping_sub), std::ref(rec),
                              realsense_config);
 
-  /* EXECUTING THREAD & TASK-GRAPH */
-  try {
-    executor.run(taskflow).wait();
-    capture_thread.join();
-    localize_thread.join();
-    mapping_thread.join();
-  } catch (const std::exception &e) {
-    spdlog::info(std::format("Exception: {}", e.what()));
+  /* PARSE GNSS WAYPOINTS */
+  // FIX(PR1-bug6): original code had `std::stgnss_str.substr(...)` — invalid
+  // Fixed: proper getline + stod parsing, then call navGPS with the queue.
+  std::queue<std::pair<double, double>> target_gnss;
+  {
+    std::ifstream gnss_file(vm["gnss"].as<std::string>());
+    if (!gnss_file.is_open()) {
+      spdlog::error("Unable to open GNSS file");
+      return -1;
+    }
+    std::string line;
+    while (std::getline(gnss_file, line)) {
+      if (line.empty()) continue;
+      std::istringstream ss(line);
+      std::string lat_str, lon_str;
+      if (std::getline(ss, lat_str, ' ') && std::getline(ss, lon_str)) {
+        try {
+          double lat = std::stod(lat_str);
+          double lon = std::stod(lon_str);
+          target_gnss.push({lat, lon});
+        } catch (const std::exception &e) {
+          spdlog::warn(std::format("Skipping malformed GNSS line: {}", line));
+        }
+      }
+    }
+    gnss_file.close();
   }
+  spdlog::info(std::format("Loaded {} GNSS waypoints", target_gnss.size()));
 
-  // killing objects
+  /* MISSION EXECUTION */
+  // FIX(PR1-bug7): original code had broken Taskflow usage — empty taskflow
+  // graph, undefined `navGPS` task variable, sm.navGPS() called with a
+  // variable declaration inside the call. Replaced with simple sequential
+  // blocking call. navGPS() itself already blocks on map_sync internally.
+  sm.navGPS(target_gnss);
+
+  /* CLEANUP */
+  capture_thread.join();
+  localize_thread.join();
+  mapping_thread.join();
+
   delete slam_handler;
   delete nav_ctx;
   delete pid_ctx;
   utils::destroyHandle(rs_ptr);
-  serial::close(nucleo);
+  serial::close(serial);
 
   return 0;
 }
